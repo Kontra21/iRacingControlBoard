@@ -5,7 +5,7 @@ import random
 import re
 import time
 
-from irsdk import CAM_SPECIAL_TARGETS, CommandError, build_session_digest
+from irsdk import CAM_SPECIAL_TARGETS, CommandError, build_session_digest, parse_keys
 
 log = logging.getLogger("demo")
 
@@ -60,6 +60,13 @@ VARS = {
     "WaterTemp": ("Engine coolant temp", "C"), "OilTemp": ("Engine oil temperature", "C"), "OilPress": ("Engine oil pressure", "bar"),
     "Voltage": ("Engine voltage", "V"), "dcBrakeBias": ("In car brake bias adjustment", "%"),
     "EngineWarnings": ("Bitfield for warning lights", "irsdk_EngineWarnings"),
+    "CamCameraState": ("State of camera system", "irsdk_CameraState"),
+    "PitSvFlags": ("Bitfield of pit service checkboxes", "irsdk_PitSvFlags"),
+    "PitSvFuel": ("Pit service fuel add amount", "l"),
+    "PlayerCarPitSvStatus": ("Players car pit service status bits", "irsdk_PitSvStatus"),
+    "CarLeftRight": ("Notify if car is to the left or right of driver", "irsdk_CarLeftRight"),
+    "TrackWetness": ("How wet is the average track surface", "irsdk_TrackWetness"),
+    "ReplayFrameNum": ("Integer replay frame number (60 per second)", ""),
 }
 
 
@@ -73,6 +80,9 @@ class DemoSource:
         self.cam_idx = 1
         self.caution_at = None
         self.car_flags = {}
+        self.cam_state = 0x10
+        self.pit_flags = 0
+        self.pit_fuel = 0.0
         self.cars = []
         for i, name in enumerate(NAMES):
             gtp = i < 6
@@ -134,6 +144,7 @@ class DemoSource:
                  "Pit Lane", "Blimp", "Chopper", "Chase", "Far Chase", "Rear Chase"])]},
         }
         self.session = build_session_digest(si)
+        self.session_raw = si
         self.session_version += 1
 
     def get(self, names):
@@ -224,6 +235,10 @@ class DemoSource:
             "WaterTemp": round(88 + 3 * math.sin(t / 40), 1), "OilTemp": round(101 + 4 * math.sin(t / 55), 1),
             "OilPress": 4.8, "Voltage": 13.8, "dcBrakeBias": 54.5,
             "EngineWarnings": 0x10 if in_pit else 0,
+            "CamCameraState": self.cam_state, "PitSvFlags": self.pit_flags, "PitSvFuel": self.pit_fuel,
+            "PlayerCarPitSvStatus": 1 if in_pit and surf[ME] == 1 else 0,
+            "CarLeftRight": 1 + int(2 * math.sin(t / 5) > 1.4) * (2 if math.cos(t / 5) > 0 else 1),
+            "TrackWetness": 1, "ReplayFrameNum": int(t * 60),
         }
 
     # reactions to commands, so buttons visibly do something in demo mode
@@ -260,6 +275,8 @@ class DemoCommands:
 
     def broadcast(self, cmd, var1=0, var2=0, var3=None):
         log.info("[demo] broadcast %s %s %s %s", cmd, var1, var2, var3)
+        if cmd == 2:  # irsdk_BroadcastCamSetState
+            self.source.cam_state = var1
 
     def cam_switch_num(self, car, group=0, camera=0):
         car = str(car).strip().lower()
@@ -281,6 +298,23 @@ class DemoCommands:
 
     def chat_macro(self, n):
         pass
+
+    def pit_command(self, cmd, value=0):
+        src = self.source
+        bits = {"lf": 0x01, "rf": 0x02, "lr": 0x04, "rr": 0x08, "fuel": 0x10, "tearoff": 0x20, "fastRepair": 0x40}
+        clears = {"clearTires": 0x0F, "clearFuel": 0x10, "clearTearoff": 0x20, "clearFastRepair": 0x40, "clear": 0x7F}
+        if cmd in bits:
+            src.pit_flags |= bits[cmd]
+        if cmd in clears:
+            src.pit_flags &= ~clears[cmd]
+        if cmd == "fuel":
+            src.pit_fuel = float(value)
+        elif cmd in ("clearFuel", "clear"):
+            src.pit_fuel = 0.0
+
+    def press_keys(self, combo, hold_ms, opts):
+        parse_keys(combo)  # still reject typos in demo mode
+        time.sleep(max(40, hold_ms) / 1000)
 
     def chat(self, text, opts):
         time.sleep(0.15)  # feel like the real thing

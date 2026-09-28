@@ -242,6 +242,7 @@ class IRacingSource:
         self._si_update = None
         self.connected = False
         self.session = None
+        self.session_raw = None
         self.session_version = 0
 
     # public API -------------------------------------------------------------------
@@ -323,6 +324,7 @@ class IRacingSource:
             self._tick = -1
             if self.session is not None:
                 self.session = None
+                self.session_raw = None
                 self.session_version += 1
 
     def _read(self, off, n):
@@ -418,6 +420,7 @@ class IRacingSource:
         digest = build_session_digest(si)
         with self._lock:
             self.session = digest
+            self.session_raw = si
             self.session_version += 1
 
 
@@ -451,10 +454,109 @@ REPLAY_SEARCH_MODES = {
 # irsdk_csMode: special "car numbers" for camera switching
 CAM_SPECIAL_TARGETS = {"exiting": -1, "leader": -2, "incident": -3}
 
+# irsdk_PitCommandMode (applies to the car driven on this PC). Fuel is liters, tires kPa; 0 = keep current value.
+PIT_COMMANDS = {
+    "clear": 0, "tearoff": 1, "fuel": 2, "lf": 3, "rf": 4, "lr": 5, "rr": 6, "clearTires": 7,
+    "fastRepair": 8, "clearTearoff": 9, "clearFastRepair": 10, "clearFuel": 11, "compound": 12,
+}
+
+# irsdk_CameraState bits. The first two are read-only.
+CAM_STATE_BITS = {
+    "IsSessionScreen": 0x0001, "IsScenicActive": 0x0002, "CamToolActive": 0x0004, "UIHidden": 0x0008,
+    "UseAutoShotSelection": 0x0010, "UseTemporaryEdits": 0x0020, "UseKeyAcceleration": 0x0040,
+    "UseKey10xAcceleration": 0x0080, "UseMouseAimMode": 0x0100,
+}
+CAM_STATE_SETTABLE = 0x01FC
+REPLAY_POS_MODES = {"begin": 0, "current": 1, "end": 2}
+TELEM_COMMANDS = {"stop": 0, "start": 1, "restart": 2}
+VIDEO_COMMANDS = {"screenshot": 0, "start": 1, "end": 2, "toggle": 3, "showTimer": 4, "hideTimer": 5}
+CHAT_MODES = {"begin": CHAT_BEGIN, "reply": CHAT_REPLY, "cancel": CHAT_CANCEL}
+
+
+def sdk_message(op, a, tel):
+    """Translate an 'sdk' action into (msg, var1, var2[, var3]) for irsdk_broadcastMsg.
+
+    `tel` is a callable returning current telemetry values (for toggles / 'current session')."""
+    if op == "camState":
+        mask = 0
+        for name in a.get("bits") or []:
+            if name not in CAM_STATE_BITS:
+                raise CommandError("Unknown camera state %r" % name)
+            mask |= CAM_STATE_BITS[name]
+        mask &= CAM_STATE_SETTABLE
+        cur = int(tel("CamCameraState") or 0) & CAM_STATE_SETTABLE
+        mode = a.get("mode", "toggle")
+        state = cur ^ mask if mode == "toggle" else cur | mask if mode == "on" else cur & ~mask if mode == "off" else mask
+        return (BC_CAM_SET_STATE, state, 0)
+    if op == "replayPosition":
+        mode = a.get("mode", "current")
+        if mode not in REPLAY_POS_MODES:
+            raise CommandError("Unknown replay position mode %r" % mode)
+        return (BC_REPLAY_SET_PLAY_POSITION, REPLAY_POS_MODES[mode], int(float(a.get("frame") or 0)))
+    if op == "replaySessionTime":
+        session = a.get("session", "current")
+        session = tel("SessionNum") if session in ("", None, "current") else int(session)
+        if session is None:
+            raise CommandError("Current session unknown")
+        return (BC_REPLAY_SEARCH_SESSION_TIME, int(session), int(float(a.get("seconds") or 0) * 1000))
+    if op == "eraseTape":
+        return (BC_REPLAY_SET_STATE, 0, 0)  # irsdk_RpyState_EraseTape
+    if op == "reloadTextures":
+        car = str(a.get("carIdx", "")).strip()
+        return (BC_RELOAD_TEXTURES, 1, int(car)) if car else (BC_RELOAD_TEXTURES, 0, 0)
+    if op == "telemetry":
+        return (BC_TELEM_COMMAND, TELEM_COMMANDS[a.get("cmd", "start")], 0)
+    if op == "ffb":
+        # irsdk packs the float as 16.16 fixed point; -1 resets to the car's default
+        return (BC_FFB_COMMAND, 0, int(float(a.get("nm") or 0) * 65536))
+    if op == "video":
+        return (BC_VIDEO_CAPTURE, VIDEO_COMMANDS[a.get("cmd", "screenshot")], 0)
+    if op == "chatControl":
+        return (BC_CHAT_COMMAND, CHAT_MODES[a.get("mode", "cancel")], 0)
+    raise CommandError("Unknown SDK command %r" % op)
+
+
+# Key names for "key" actions -> Windows virtual-key codes
+_KEYS = {
+    "ctrl": 0x11, "control": 0x11, "shift": 0x10, "alt": 0x12,
+    "space": 0x20, "enter": 0x0D, "tab": 0x09, "esc": 0x1B, "escape": 0x1B, "backspace": 0x08,
+    "insert": 0x2D, "ins": 0x2D, "delete": 0x2E, "del": 0x2E, "home": 0x24, "end": 0x23,
+    "pageup": 0x21, "pgup": 0x21, "pagedown": 0x22, "pgdn": 0x22,
+    "up": 0x26, "down": 0x28, "left": 0x25, "right": 0x27,
+    "numplus": 0x6B, "numminus": 0x6D, "num*": 0x6A, "num/": 0x6F, "num.": 0x6E,
+    "-": 0xBD, "=": 0xBB, "[": 0xDB, "]": 0xDD, ";": 0xBA, "'": 0xDE, ",": 0xBC, ".": 0xBE,
+    "/": 0xBF, "\\": 0xDC, "`": 0xC0,
+}
+_KEYS.update({chr(c): ord(chr(c).upper()) for c in range(ord("a"), ord("z") + 1)})
+_KEYS.update({str(d): ord(str(d)) for d in range(10)})
+_KEYS.update({"f%d" % n: 0x6F + n for n in range(1, 25)})
+_KEYS.update({"num%d" % n: 0x60 + n for n in range(10)})
+_MODIFIERS = {0x10, 0x11, 0x12}
+_EXTENDED = {0x2D, 0x2E, 0x24, 0x23, 0x21, 0x22, 0x26, 0x28, 0x25, 0x27, 0x6F}
+
+
+def parse_keys(combo):
+    """'ctrl+shift+i' -> [VK_CONTROL, VK_SHIFT, 'I']; modifiers first, exactly one main key last."""
+    text = str(combo).strip().lower().replace("num+", "numplus").replace("num-", "numminus")
+    parts = [p.strip() for p in text.split("+")]
+    if not text or any(not p for p in parts):
+        raise CommandError("Invalid key combo %r" % combo)
+    vks = []
+    for p in parts:
+        if p not in _KEYS:
+            raise CommandError("Unknown key %r in %r" % (p, combo))
+        vks.append(_KEYS[p])
+    mods = [v for v in vks if v in _MODIFIERS]
+    main = [v for v in vks if v not in _MODIFIERS]
+    if len(main) != 1:
+        raise CommandError("Key combo %r needs exactly one non-modifier key" % combo)
+    return mods + main
+
 WM_KEYDOWN, WM_KEYUP, WM_CHAR = 0x0100, 0x0101, 0x0102
 VK_RETURN, VK_SHIFT, VK_CONTROL, VK_MENU = 0x0D, 0x10, 0x11, 0x12
 INPUT_KEYBOARD = 1
 KEYEVENTF_KEYUP, KEYEVENTF_UNICODE = 0x0002, 0x0004
+KEYEVENTF_EXTENDEDKEY, KEYEVENTF_SCANCODE = 0x0001, 0x0008
 SW_RESTORE = 9
 
 
@@ -506,6 +608,37 @@ class IRacingCommands:
 
     def chat_macro(self, n):
         self.broadcast(BC_CHAT_COMMAND, CHAT_MACRO, int(n) - 1)
+
+    def pit_command(self, cmd, value=0):
+        if cmd not in PIT_COMMANDS:
+            raise CommandError("Unknown pit command %r" % cmd)
+        self.broadcast(BC_PIT_COMMAND, PIT_COMMANDS[cmd], int(value))
+
+    # car controls: press whatever key the control is bound to in iRacing ---------------
+    @staticmethod
+    def _scan_event(vk, up=False):
+        # Scan codes rather than virtual keys, because that's what games reading raw/DirectInput see
+        scan = u32.MapVirtualKeyW(vk, 4)  # MAPVK_VK_TO_VSC_EX
+        flags = KEYEVENTF_SCANCODE | (KEYEVENTF_KEYUP if up else 0)
+        if vk in _EXTENDED or (scan >> 8) in (0xE0, 0xE1):
+            flags |= KEYEVENTF_EXTENDEDKEY
+        return (0, scan & 0xFF, flags)
+
+    def press_keys(self, combo, hold_ms, opts):
+        vks = parse_keys(combo)
+        with self._lock:
+            hwnd = self._find_window()
+            if not hwnd:
+                raise CommandError("iRacing window not found - is the sim running?")
+            prev = u32.GetForegroundWindow()
+            self._focus(hwnd)
+            time.sleep(0.03)
+            self._send([self._scan_event(vk) for vk in vks])
+            time.sleep(max(40, hold_ms) / 1000)  # sims poll input per frame; a zero-length tap can be missed
+            self._send([self._scan_event(vk, up=True) for vk in reversed(vks)])
+            time.sleep(0.05)
+            if opts.get("restoreFocus", True) and prev and prev != hwnd:
+                u32.SetForegroundWindow(prev)
 
     # chat typing -------------------------------------------------------------------
     @staticmethod

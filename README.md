@@ -54,6 +54,45 @@ The **My Car** page is for the car being driven on the PC running the server:
 
 When you're spectating (e.g. as league admin) the dash says so instead of showing zeros.
 
+## Car controls and pit service
+
+The **Car** page controls the car driven on the PC.
+
+- **Pit service** (fuel, tires, tearoff, fast repair) uses iRacing SDK pit commands. These work without any setup and don't touch window focus.
+- **Car controls** (ignition, starter, pit limiter, lights, wipers, brake bias…) have no SDK command, so the board presses the key each control is bound to in iRacing. It briefly focuses iRacing, the same way chat commands do. Each button's key combo has to match your iRacing binding:
+
+| Button | Default combo | Notes |
+|---|---|---|
+| Ignition | `ctrl+shift+i` | |
+| Starter | `ctrl+shift+s` | held for 1.5 s |
+| Pit Limiter | `ctrl+shift+l` | |
+| Headlights / Flash | `ctrl+shift+h` / `ctrl+shift+f` | |
+| Wipers | `ctrl+shift+w` | |
+| Brake bias − / + | `ctrl+shift+[` / `ctrl+shift+]` | |
+
+To bind one: in iRacing, open Options → Controls, click the control's binding, then press the matching button on the board. Or change the button's combo to whatever key you already use. Supported key names: letters, digits, `f1`–`f24`, `num0`–`num9`, `num+ num- num* num/ num.`, arrows, `home end pgup pgdn ins del`, `space enter tab esc`, punctuation, and `ctrl` / `shift` / `alt` modifiers.
+
+## iRacing SDK coverage
+
+| SDK feature | Where it's used |
+|---|---|
+| All telemetry variables (including per-car `CarIdx…` arrays) | Tiles: any variable, e.g. `Speed`, `CarIdxPosition[target]` |
+| Full session info (weekend, drivers, results, sessions, cameras, setup…) | Tiles: `si:` paths, e.g. `si:WeekendInfo.TrackSkies`, `si:DriverInfo.Drivers[target].IRating`, `si:SessionInfo.Sessions[current].ResultsPositions[0].CarIdx`. Browse everything at `http://<pc>:8420/api/session` |
+| Camera switch (by car / position / leader / incident) | `camera` action |
+| Camera state (hide UI, camera tool, auto shot selection, key/mouse modes) | `sdk` action → Camera / UI state (toggle, on, off, set) |
+| Replay speed, search, jump N frames, jump to session time, erase tape | `replay` and `sdk` actions |
+| Reload car textures (all or one car) | `sdk` action |
+| Chat macros; open, reply to or close chat | `macro` and `sdk` actions |
+| Pit service (fuel, tires, tearoff, fast repair, compound, clear) | `pit` action |
+| Telemetry disk recording (.ibt start / stop / restart) | `sdk` action |
+| Force-feedback max force | `sdk` action |
+| Screenshot and video capture | `sdk` action |
+| Anything else | `broadcast` action (raw `irsdk_broadcastMsg`) |
+
+Readable formats exist for the SDK's bitfields and enums: flags, session state, pace mode, track surface, engine warnings, pit service flags and status, spotter (car left/right), track wetness and camera state.
+
+Things the SDK can't do from outside the sim, such as car controls (ignition, lights, wipers…), are handled with key presses (see above).
+
 ## Customizing
 
 Tap **✎** to edit the layout.

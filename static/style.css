@@ -135,7 +135,7 @@ input, select, textarea { font: inherit; font-size: max(16px, 1em); color: var(-
 .panel { width: 100%; height: 100%; background: var(--panel); border: 1px solid var(--line); border-radius: 14px; overflow: hidden; display: flex; flex-direction: column; }
 .tile { justify-content: center; align-items: center; text-align: center; padding: 4px; gap: 2px; container-type: size; }
 .tile .t-label { font-size: clamp(9px, min(13cqh, 8cqw), 13px); color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 650; }
-.tile .t-value { font-size: clamp(12px, min(38cqh, 17cqw), 56px); font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.tile .t-value { font-size: clamp(10px, min(38cqh, calc(150cqw / var(--n, 9))), 56px); font-weight: 800; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .label-item { display: flex; align-items: flex-end; height: 100%; padding: 0 4px 6px; font-size: .8em; font-weight: 750; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); border-bottom: 1px solid var(--line); }
 
 .flag-panel { align-items: center; justify-content: center; text-align: center; border: 0; container-type: size; }
@@ -358,3 +358,12 @@ input, select, textarea { font: inherit; font-size: max(16px, 1em); color: var(-
 .in-fill.thr { background: #22c55e; }
 .in-fill.brk { background: #ef4444; }
 .in-fill.clu { background: #3b82f6; }
+
+/* tabs: reorder by dragging in edit mode (bar wraps so every tab is reachable without scrolling) */
+#tabs.editing { flex-wrap: wrap; overflow-x: visible; }
+#tabs.editing .tab { flex: 0 1 auto; }
+#tabs.editing .tab[data-page] { touch-action: none; cursor: grab; border: 1px dashed rgb(147 197 253 / .45); }
+.tab.dragging { position: relative; z-index: 10; opacity: .9; background: var(--accent); color: #fff; cursor: grabbing; box-shadow: 0 6px 18px rgb(0 0 0 / .5); }
+.tab.drop-before { box-shadow: inset 4px 0 0 var(--ok); }
+.tab.drop-after { box-shadow: inset -4px 0 0 var(--ok); }
+#board { touch-action: pan-y; }

@@ -48,6 +48,11 @@ CORE_VARS = [
 ]
 
 log = logging.getLogger("board")
+
+
+def dumps(obj):
+    # default=str: session-info YAML can contain dates
+    return json.dumps(obj, separators=(",", ":"), default=str)
 _CTRL = re.compile(r"[\x00-\x1f\x7f]")
 
 
@@ -166,9 +171,10 @@ class Client:
         self.device = device
         self.remote = remote
         self.subs = set()
+        self.wants_si = False
 
     async def send(self, obj):
-        await self.send_str(json.dumps(obj, separators=(",", ":")))
+        await self.send_str(dumps(obj))
 
     async def send_str(self, s):
         if self.ws.closed:
@@ -194,7 +200,7 @@ class Board:
         return self.config["settings"]
 
     async def broadcast(self, obj, exclude=None):
-        s = json.dumps(obj, separators=(",", ":"))
+        s = dumps(obj)
         await asyncio.gather(*(c.send_str(s) for c in list(self.clients) if c is not exclude))
 
     async def add_log(self, client, text, ok=True, error=None):
@@ -274,6 +280,25 @@ class Board:
             var3 = action.get("var3")
             await blocking(cmds.broadcast, *args, None if var3 in (None, "") else int(var3))
             return "broadcast %s" % args
+        if t == "key":
+            keys = str(action.get("keys", "")).strip()
+            hold = min(5000, max(0, int(action.get("holdMs") or 0)))
+            await blocking(cmds.press_keys, keys, hold, dict(self.settings))
+            return "key %s%s" % (keys, " (held %d ms)" % hold if hold else "")
+        if t == "pit":
+            cmd = action.get("cmd")
+            if cmd not in irsdk.PIT_COMMANDS:
+                raise CommandError("Unknown pit command %r" % cmd)
+            value = int(round(float(action.get("value") or 0)))
+            await blocking(cmds.pit_command, cmd, value)
+            return "pit %s%s" % (cmd, " %d" % value if value else "")
+        if t == "sdk":
+            op = action.get("op")
+            msg = irsdk.sdk_message(op, action, lambda name: self.source.get([name]).get(name))
+            await blocking(cmds.broadcast, *msg)
+            detail = " ".join(str(action[k]) for k in ("mode", "cmd", "frame", "seconds", "nm", "carIdx") if action.get(k) not in (None, ""))
+            bits = ",".join(action.get("bits") or [])
+            return "sdk %s %s%s" % (op, detail, " " + bits if bits else "")
         if t == "delay":
             ms = min(10000, max(0, int(action.get("ms", 0))))
             await asyncio.sleep(ms / 1000)
@@ -318,6 +343,8 @@ class Board:
             if self.source.session_version != last_session:
                 last_session = self.source.session_version
                 await self.broadcast({"t": "session", "d": self.source.session})
+                raw = dumps({"t": "si", "d": self.source.session_raw})
+                await asyncio.gather(*(c.send_str(raw) for c in list(self.clients) if c.wants_si))
             if not status["connected"]:
                 continue
             names = set(CORE_VARS)
@@ -374,6 +401,14 @@ async def api_vars(request):
     return web.json_response(board.source.var_list() + calc)
 
 
+async def api_session(request):
+    """Full parsed session-info YAML, for finding si: paths to put on tiles."""
+    board = request.app["board"]
+    if not _pin_ok(board, request.headers.get("X-Pin", "") or request.query.get("pin", "")):
+        raise web.HTTPUnauthorized()
+    return web.Response(text=json.dumps(board.source.session_raw, indent=2, default=str), content_type="application/json")
+
+
 async def ws_handler(request):
     board = request.app["board"]
     ws = web.WebSocketResponse(heartbeat=15)
@@ -402,6 +437,10 @@ async def ws_handler(request):
             t = msg.get("t")
             if t == "sub":
                 client.subs = {str(v) for v in (msg.get("vars") or [])[:200]}
+                wants_si = bool(msg.get("si"))
+                if wants_si and not client.wants_si:
+                    await client.send({"t": "si", "d": board.source.session_raw})
+                client.wants_si = wants_si
             elif t == "run":
                 asyncio.create_task(board.run(client, msg))
             elif t == "saveConfig":
@@ -470,6 +509,7 @@ def main():
     app.router.add_get("/", index)
     app.router.add_get("/ws", ws_handler)
     app.router.add_get("/api/vars", api_vars)
+    app.router.add_get("/api/session", api_session)
     app.router.add_static("/static/", STATIC_DIR)
 
     async def start_pump(app):

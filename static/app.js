@@ -132,6 +132,28 @@ const FORMATS = {
   mph: (v, it) => `${(v * 2.23694).toFixed(it.decimals ?? 0)}`,
   gallons: (v, it) => (v * 0.264172).toFixed(it.decimals ?? 2),
   delta: (v, it) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(it.decimals ?? 3)}`,
+  hex: (v) => `0x${(v >>> 0).toString(16)}`,
+  pitSvFlags: (v) => {
+    const tires = [[1, 'LF'], [2, 'RF'], [4, 'LR'], [8, 'RR']].filter(([b]) => v & b).map(([, n]) => n);
+    const parts = [tires.length === 4 ? '4 tires' : tires.join('+')];
+    if (v & 0x10) parts.push('Fuel');
+    if (v & 0x20) parts.push('Tearoff');
+    if (v & 0x40) parts.push('Repair');
+    return parts.filter(Boolean).join(' · ') || 'None';
+  },
+  pitStatus: (v) => ({ 0: 'None', 1: 'In progress', 2: 'Complete', 100: 'Too far left', 101: 'Too far right', 102: 'Too far forward', 103: 'Too far back', 104: 'Bad angle', 105: "Can't fix that" })[v] ?? String(v),
+  carLeftRight: (v) => ['Off', 'Clear', 'Car left', 'Car right', 'Both sides', '2 cars left', '2 cars right'][v] ?? String(v),
+  wetness: (v) => ['Unknown', 'Dry', 'Mostly dry', 'Very lightly wet', 'Lightly wet', 'Moderately wet', 'Very wet', 'Extremely wet'][v] ?? String(v),
+  engineWarnings: (v) => bitNames(v, ENGINE_WARN.map(([b, n]) => [b, n])),
+  camState: (v) => bitNames(v, Object.entries(CAM_STATE_BITS).map(([n, b]) => [b, n])),
+};
+function bitNames(v, table) {
+  const on = table.filter(([bit]) => (v & bit) !== 0).map(([, name]) => name);
+  return on.length ? on.join(' · ') : 'None';
+}
+const CAM_STATE_BITS = {
+  IsSessionScreen: 0x1, IsScenicActive: 0x2, CamToolActive: 0x4, UIHidden: 0x8, UseAutoShotSelection: 0x10,
+  UseTemporaryEdits: 0x20, UseKeyAcceleration: 0x40, UseKey10xAcceleration: 0x80, UseMouseAimMode: 0x100,
 };
 
 /* =====================================================================================
@@ -213,9 +235,29 @@ function myDriver() {
   const idx = S.session?.player?.idx ?? S.session?.playerIdx;
   return S.session?.drivers?.find((d) => d.idx === idx) || null;
 }
+// Session info paths: "WeekendInfo.TrackName", "DriverInfo.Drivers[target].IRating",
+// "SessionInfo.Sessions[current].SessionLaps", "...[3]". [target|player|cam] pick the entry by CarIdx.
+function readSessionInfo(path) {
+  let cur = S.si;
+  for (const m of path.matchAll(/([^.[\]]+)|\[([^\]]+)\]/g)) {
+    if (cur == null) return null;
+    if (m[1] != null) { cur = cur[m[1].trim()]; continue; }
+    const k = m[2].trim();
+    if (!Array.isArray(cur)) return null;
+    if (/^\d+$/.test(k)) cur = cur[+k];
+    else if (k === 'current') cur = cur.find((e) => e?.SessionNum === S.tel.SessionNum);
+    else {
+      const idx = k === 'target' ? S.target : k === 'player' ? (S.tel.PlayerCarIdx ?? S.session?.playerIdx) : k === 'cam' ? S.tel.CamCarIdx : null;
+      cur = idx == null ? null : cur.find((e) => e?.CarIdx === idx);
+    }
+  }
+  return cur != null && typeof cur === 'object' ? JSON.stringify(cur) : cur ?? null;
+}
+
 function readSource(src) {
   if (!src) return null;
   if (src.startsWith('@')) return DERIVED[src.slice(1)]?.() ?? null;
+  if (src.startsWith('si:')) return readSessionInfo(src.slice(3));
   const m = /^(\w+)(?:\[(\w+)\])?$/.exec(src.trim());
   if (!m) return null;
   let v = S.tel[m[1]];
@@ -227,7 +269,7 @@ function readSource(src) {
   return v ?? null;
 }
 function sourceVarName(src) {
-  const m = src && !src.startsWith('@') && /^(\w+)/.exec(src.trim());
+  const m = src && !src.startsWith('@') && !src.startsWith('si:') && /^(\w+)/.exec(src.trim());
   return m ? m[1] : null;
 }
 
@@ -292,6 +334,16 @@ function describeAction(a) {
     case 'replay': return `Replay: ${a.op}${a.mode ? ' ' + a.mode : ''}${a.speed != null ? ' ' + a.speed + 'x' : ''}`;
     case 'broadcast': return `Broadcast ${a.msg} (${a.var1}, ${a.var2}${a.var3 != null ? ', ' + a.var3 : ''})`;
     case 'delay': return `Wait ${a.ms} ms`;
+    case 'key': return `Press ${a.keys}${a.holdMs ? ` (hold ${a.holdMs} ms)` : ''}`;
+    case 'pit': return `Pit: ${PIT_LABELS[a.cmd] || a.cmd}${Number(a.value) ? ` ${a.value}` : ''}`;
+    case 'sdk': {
+      const extra = a.op === 'camState' ? `${a.mode} ${(a.bits || []).join(', ')}`
+        : a.op === 'replayPosition' ? `${a.mode} ${a.frame >= 0 ? '+' : ''}${a.frame} frames`
+        : a.op === 'replaySessionTime' ? `session ${a.session || 'current'} @ ${a.seconds}s`
+        : a.op === 'reloadTextures' ? (a.carIdx !== '' && a.carIdx != null ? `car idx ${a.carIdx}` : 'all cars')
+        : a.op === 'ffb' ? `${a.nm} Nm` : (a.cmd || a.mode || '');
+      return `${SDK_OPS[a.op] || a.op}: ${extra}`;
+    }
   }
   return JSON.stringify(a);
 }
@@ -353,6 +405,10 @@ function onMessage(m) {
       updateDatalists();
       schedule();
       break;
+    case 'si':
+      S.si = m.d;
+      schedule();
+      break;
     case 'tel':
       Object.assign(S.tel, m.d);
       invalidateCars();
@@ -391,14 +447,16 @@ function onMessage(m) {
 
 function sendSubs() {
   const vars = new Set();
+  let si = false;
   for (const p of [...(S.config?.pages || []), S.config?.driverSheet].filter(Boolean)) {
     for (const it of p.items || []) {
       if (it.type === 'tile') { const v = sourceVarName(it.source); if (v) vars.add(v); }
+      if (it.type === 'tile' && it.source?.startsWith('si:')) si = true;
       if (it.type === 'mycar') MYCAR_VARS.forEach((v) => vars.add(v));
       if (it.type === 'inputs') INPUT_VARS.forEach((v) => vars.add(v));
     }
   }
-  send({ t: 'sub', vars: [...vars] });
+  send({ t: 'sub', vars: [...vars], si });
 }
 
 async function fetchVars() {
@@ -480,14 +538,20 @@ function renderAll() {
 function renderTabs() {
   const nav = $('#tabs');
   const cur = currentPage();
+  nav.classList.toggle('editing', S.edit);
   nav.replaceChildren(
-    ...pages().map((p) => h('button', {
-      class: 'tab' + (p === cur ? ' active' : ''), type: 'button',
-      onclick: () => {
-        if (S.edit && p === cur) return openPageEditor(p);
-        prefs.page = p.id; savePrefs(); renderTabs(); renderBoard();
-      },
-    }, p.name || 'Page', S.edit && p === cur ? ' ✎' : '')),
+    ...pages().map((p) => {
+      const tab = h('button', {
+        class: 'tab' + (p === cur ? ' active' : ''), type: 'button', 'data-page': p.id,
+        onclick: () => {
+          if (tab.dataset.dragged) return;
+          if (S.edit && p === cur) return openPageEditor(p);
+          goToPage(p.id);
+        },
+      }, p.name || 'Page', S.edit && p === cur ? ' ✎' : '');
+      if (S.edit) bindTabDrag(tab, p);
+      return tab;
+    }),
     ...(S.edit ? [
       h('button', { class: 'tab add', type: 'button', title: 'Add page', onclick: addPage }, '+'),
       h('button', {
@@ -500,6 +564,109 @@ function renderTabs() {
     ] : []),
   );
   nav.querySelector('.active')?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+}
+
+function goToPage(id, dir = 0) {
+  prefs.page = id;
+  savePrefs();
+  renderTabs();
+  renderBoard();
+  if (dir) $('#board').animate([{ transform: `translateX(${dir * 36}px)`, opacity: 0.3 }, { transform: 'none', opacity: 1 }], { duration: 170, easing: 'ease-out' });
+}
+
+function stepPage(dir) {
+  const ps = pages();
+  const i = ps.indexOf(currentPage());
+  const next = ps[i + dir];
+  if (!next) {  // at either end: small bounce
+    $('#board').animate([{ transform: 'none' }, { transform: `translateX(${-dir * 14}px)` }, { transform: 'none' }], { duration: 200 });
+    return;
+  }
+  buzz(8);
+  goToPage(next.id, dir);
+}
+
+// Swipe left/right on the board to change page. Touch events (not pointer events) because the
+// browser cancels pointer streams when it starts a scroll, and we still want to see the gesture.
+const swipe = { x: null, y: null, t: 0, active: false };
+function bindSwipe() {
+  const board = $('#board');
+  board.addEventListener('touchstart', (e) => {
+    swipe.active = false;
+    if (S.edit || e.touches.length !== 1) { swipe.x = null; return; }
+    swipe.x = e.touches[0].clientX; swipe.y = e.touches[0].clientY; swipe.t = Date.now();
+  }, { passive: true });
+  board.addEventListener('touchmove', (e) => {
+    if (swipe.x == null || swipe.active) return;
+    const dx = e.touches[0].clientX - swipe.x, dy = e.touches[0].clientY - swipe.y;
+    if (Math.abs(dx) > 24 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+      swipe.active = true;
+      board.querySelectorAll('.pressed').forEach((el) => el.dispatchEvent(new PointerEvent('pointercancel')));
+    }
+  }, { passive: true });
+  board.addEventListener('touchend', (e) => {
+    if (swipe.x == null) return;
+    const dx = e.changedTouches[0].clientX - swipe.x, dy = e.changedTouches[0].clientY - swipe.y;
+    if (swipe.active && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5 && Date.now() - swipe.t < 900) stepPage(dx < 0 ? 1 : -1);
+    swipe.x = null;
+  });
+  document.addEventListener('keydown', (e) => {
+    if (S.edit || $('#sheets').children.length || /INPUT|TEXTAREA|SELECT/.test(document.activeElement?.tagName || '')) return;
+    if (e.key === 'ArrowRight') stepPage(1);
+    if (e.key === 'ArrowLeft') stepPage(-1);
+  });
+}
+
+// Edit mode: drag a tab onto another to reorder pages. The tab bar wraps while editing, so no scrolling is involved.
+function bindTabDrag(tab, page) {
+  let start = null, dragging = false, over = null, after = false;
+  const clearMark = () => { over?.classList.remove('drop-before', 'drop-after'); over = null; };
+  tab.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    start = { x: e.clientX, y: e.clientY, id: e.pointerId };
+    delete tab.dataset.dragged;
+  });
+  tab.addEventListener('pointermove', (e) => {
+    if (!start) return;
+    const dx = e.clientX - start.x, dy = e.clientY - start.y;
+    if (!dragging) {
+      if (Math.hypot(dx, dy) < 6) return;
+      dragging = true;
+      tab.classList.add('dragging');
+      try { tab.setPointerCapture(start.id); } catch {}
+    }
+    tab.style.transform = `translate(${dx}px, ${dy}px)`;
+    const target = [...$('#tabs').querySelectorAll('.tab[data-page]')].find((t) => {
+      if (t === tab) return false;
+      const r = t.getBoundingClientRect();
+      return e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top - 6 && e.clientY <= r.bottom + 6;
+    });
+    clearMark();
+    if (target) {
+      const r = target.getBoundingClientRect();
+      after = e.clientX > r.left + r.width / 2;
+      over = target;
+      over.classList.add(after ? 'drop-after' : 'drop-before');
+    }
+  });
+  const end = () => {
+    if (dragging) {
+      tab.dataset.dragged = '1'; // swallow the click that follows the drag
+      if (over) {
+        const ps = S.config.pages;
+        ps.splice(ps.indexOf(page), 1);
+        const to = ps.findIndex((p) => p.id === over.dataset.page) + (after ? 1 : 0);
+        ps.splice(to, 0, page);
+        saveConfig();
+      }
+      clearMark();
+      setTimeout(renderTabs, 0);
+    }
+    start = null;
+    dragging = false;
+  };
+  tab.addEventListener('pointerup', end);
+  tab.addEventListener('pointercancel', end);
 }
 
 function renderBoard() {
@@ -695,8 +862,9 @@ function bindPress(el, item) {
     }
   });
   el.addEventListener('pointerup', () => {
-    const wasPressed = el.classList.contains('pressed');
+    const wasPressed = el.classList.contains('pressed') && !swipe.active; // a page swipe never fires a button
     reset();
+    if (swipe.active) { if (timer) { clearTimeout(timer); timer = null; } return; }
     if (item.hold) {
       if (timer) { clearTimeout(timer); timer = null; toast('Press and hold to activate'); }
       return;
@@ -768,7 +936,11 @@ function renderTile(item) {
         try { text = (FORMATS[item.format] || FORMATS.auto)(v, item); } catch { text = String(v); }
         if (text !== '—' && item.suffix) text += item.suffix;
       }
-      if (text !== last) { val.textContent = text; last = text; }
+      if (text !== last) {
+        val.textContent = text;
+        val.style.setProperty('--n', Math.max(9, text.length)); // long values shrink to fit
+        last = text;
+      }
       if (item.color) val.style.color = item.color;
     },
   };
@@ -1417,6 +1589,27 @@ const chatBtn = (label, icon, color, text, extra = {}) => ({ type: 'button', lab
 const camBtn = (label, icon, car, group) => ({ type: 'button', label, icon, color: '#0e7490', w: 1, h: 1, actions: [{ type: 'camera', mode: 'car', car, group, camera: 0 }] });
 const replayBtn = (label, icon, a) => ({ type: 'button', label, icon, color: '#334155', w: 1, h: 1, actions: [{ type: 'replay', ...a }] });
 const tile = (label, source, format, extra = {}) => ({ type: 'tile', label, source, format, w: 1, h: 1, ...extra });
+// Key combos are suggestions: bind the same combo to each control in iRacing's Options → Controls.
+const keyBtn = (label, icon, keys, extra = {}) => ({ type: 'button', label, icon, color: '#374151', w: 1, h: 1, actions: [{ type: 'key', keys, holdMs: 0 }], ...extra });
+const pitBtn = (label, icon, color, actions) => ({ type: 'button', label, icon, color, w: 1, h: 1, actions: actions.map((a) => ({ type: 'pit', value: 0, ...a })) });
+const sdkBtn = (label, icon, a, extra = {}) => ({ type: 'button', label, icon, color: '#4338ca', w: 1, h: 1, actions: [{ type: 'sdk', ...a }], ...extra });
+const CAR_CONTROLS = [
+  keyBtn('Ignition', '🔑', 'ctrl+shift+i'),
+  { ...keyBtn('Starter', '⚡', 'ctrl+shift+s', { sub: 'hold 1.5s' }), actions: [{ type: 'key', keys: 'ctrl+shift+s', holdMs: 1500 }] },
+  keyBtn('Pit Limiter', '🅿', 'ctrl+shift+l', { color: '#0369a1' }),
+  keyBtn('Headlights', '💡', 'ctrl+shift+h'),
+  keyBtn('Flash', '✦', 'ctrl+shift+f'),
+  keyBtn('Wipers', '🌧', 'ctrl+shift+w'),
+  keyBtn('Bias −', '◀', 'ctrl+shift+['),
+  keyBtn('Bias +', '▶', 'ctrl+shift+]'),
+  pitBtn('Tearoff', '🪟', '#0f766e', [{ cmd: 'tearoff' }]),
+  pitBtn('Fast Repair', '🔧', '#0f766e', [{ cmd: 'fastRepair' }]),
+  pitBtn('Add Fuel', '⛽', '#0f766e', [{ cmd: 'fuel', value: '{input:Liters=20}' }]),
+  pitBtn('No Fuel', '⛽', '#334155', [{ cmd: 'clearFuel' }]),
+  pitBtn('4 Tires', '◎', '#0f766e', [{ cmd: 'lf' }, { cmd: 'rf' }, { cmd: 'lr' }, { cmd: 'rr' }]),
+  pitBtn('No Tires', '◎', '#334155', [{ cmd: 'clearTires' }]),
+  pitBtn('Clear Pit', '✕', '#7f1d1d', [{ cmd: 'clear' }]),
+];
 const PRESETS = [
   ['Blank', [
     { type: 'button', label: 'Button', icon: '', color: '#334155', w: 1, h: 1, actions: [] },
@@ -1467,6 +1660,27 @@ const PRESETS = [
     replayBtn('Next Lap', '↷', { op: 'search', mode: 'nextLap' }),
     replayBtn('Go Live', '●', { op: 'live' }),
   ]],
+  ['Car controls', CAR_CONTROLS],
+  ['SDK extras', [
+    sdkBtn('Hide UI', '🙈', { op: 'camState', mode: 'toggle', bits: ['UIHidden'] }),
+    sdkBtn('Camera Tool', '🎛', { op: 'camState', mode: 'toggle', bits: ['CamToolActive'] }),
+    sdkBtn('Auto Shots', '🎬', { op: 'camState', mode: 'toggle', bits: ['UseAutoShotSelection'] }),
+    sdkBtn('Back 10s', '⏪', { op: 'replayPosition', mode: 'current', frame: -600 }),
+    sdkBtn('Fwd 10s', '⏩', { op: 'replayPosition', mode: 'current', frame: 600 }),
+    sdkBtn('Tape Start', '⏮', { op: 'replayPosition', mode: 'begin', frame: 0 }),
+    sdkBtn('Jump to Time', '🕑', { op: 'replaySessionTime', session: 'current', seconds: '{input:Session time (s)=0}' }),
+    sdkBtn('Erase Tape', '🗑', { op: 'eraseTape' }, { color: '#7f1d1d', hold: true, confirm: true, sub: 'hold' }),
+    sdkBtn('Reload Textures', '🎨', { op: 'reloadTextures', carIdx: '' }),
+    sdkBtn('Reload Target', '🎨', { op: 'reloadTextures', carIdx: '{idx}' }),
+    sdkBtn('Record .ibt', '⏺', { op: 'telemetry', cmd: 'start' }, { color: '#b91c1c' }),
+    sdkBtn('Stop .ibt', '⏹', { op: 'telemetry', cmd: 'stop' }),
+    sdkBtn('New .ibt', '↻', { op: 'telemetry', cmd: 'restart' }),
+    sdkBtn('Screenshot', '📷', { op: 'video', cmd: 'screenshot' }),
+    sdkBtn('Record Video', '🎥', { op: 'video', cmd: 'toggle' }, { color: '#b91c1c' }),
+    sdkBtn('FFB Force', '🎚', { op: 'ffb', nm: '{input:Max force (Nm)=55}' }),
+    sdkBtn('Reply Chat', '↩', { op: 'chatControl', mode: 'reply' }),
+    sdkBtn('Close Chat', '✕', { op: 'chatControl', mode: 'cancel' }),
+  ]],
   ['My car', [
     { type: 'mycar', w: 12, h: 3, units: 'metric', _desc: 'Dash: gear, speed, shift lights, delta, laps' },
     { type: 'inputs', w: 12, h: 1, _desc: 'Throttle / brake / clutch' },
@@ -1486,6 +1700,11 @@ const PRESETS = [
     tile('Oil Press', 'OilPress', 'float', { decimals: 1, suffix: ' bar' }),
     tile('Brake Bias', 'dcBrakeBias', 'float', { decimals: 1, suffix: '%' }),
     tile('Speed', 'Speed', 'speed', { suffix: ' km/h' }),
+    tile('Pit Request', 'PitSvFlags', 'pitSvFlags', { w: 2 }),
+    tile('Pit Fuel', 'PitSvFuel', 'float', { decimals: 1, suffix: ' L' }),
+    tile('Pit Status', 'PlayerCarPitSvStatus', 'pitStatus'),
+    tile('Spotter', 'CarLeftRight', 'carLeftRight'),
+    tile('Warnings', 'EngineWarnings', 'engineWarnings', { w: 2 }),
   ]],
   ['Telemetry tiles', [
     tile('Laps Left', 'SessionLapsRemainEx', 'laps'),
@@ -1505,6 +1724,14 @@ const PRESETS = [
     tile('Target Best', 'CarIdxBestLapTime[target]', 'laptime'),
     tile('Target Inc', '@targetIncidents', 'text', { suffix: 'x' }),
     tile('Track Pos', 'CarIdxLapDistPct[target]', 'pct'),
+    tile('Wetness', 'TrackWetness', 'wetness'),
+    tile('Camera State', 'CamCameraState', 'camState', { w: 2 }),
+    tile('Replay Frame', 'ReplayFrameNum', 'int'),
+    tile('Track', 'si:WeekendInfo.TrackDisplayName', 'text', { w: 2 }),
+    tile('Skies', 'si:WeekendInfo.TrackSkies', 'text'),
+    tile('Target iRating', 'si:DriverInfo.Drivers[target].IRating', 'int'),
+    tile('Target License', 'si:DriverInfo.Drivers[target].LicString', 'text'),
+    tile('Session Laps', 'si:SessionInfo.Sessions[current].SessionLaps', 'text'),
   ]],
 ];
 const TYPE_NAMES = { button: 'Button', tile: 'Telemetry tile', drivers: 'Driver list', target: 'Target car', flag: 'Flag', log: 'Command log', label: 'Section label', mycar: 'My car dash', inputs: 'Pedal inputs' };
@@ -1532,10 +1759,28 @@ function openAddItem() {
 }
 
 // ---------- item editor ---------------------------------------------------------------
-const ACTION_TYPES = [['chat', 'Chat / admin command'], ['camera', 'Camera'], ['replay', 'Replay'], ['macro', 'Chat macro (1-15)'], ['delay', 'Wait'], ['broadcast', 'Raw SDK broadcast']];
+const ACTION_TYPES = [['chat', 'Chat / admin command'], ['key', 'Key press (car control)'], ['pit', 'Pit service'], ['camera', 'Camera'], ['replay', 'Replay'], ['sdk', 'More SDK (UI, recording, textures, FFB…)'], ['macro', 'Chat macro (1-15)'], ['delay', 'Wait'], ['broadcast', 'Raw SDK broadcast']];
+const SDK_OPS = {
+  camState: 'Camera / UI state', replayPosition: 'Replay: jump frames', replaySessionTime: 'Replay: jump to session time',
+  eraseTape: 'Replay: erase tape', reloadTextures: 'Reload car textures', telemetry: 'Telemetry recording (.ibt)',
+  ffb: 'Force feedback max force', video: 'Video capture / screenshot', chatControl: 'Chat window',
+};
+const SDK_OP_DEFAULTS = {
+  camState: { mode: 'toggle', bits: ['UIHidden'] }, replayPosition: { mode: 'current', frame: -600 },
+  replaySessionTime: { session: 'current', seconds: 0 }, eraseTape: {}, reloadTextures: { carIdx: '' },
+  telemetry: { cmd: 'start' }, ffb: { nm: 55 }, video: { cmd: 'screenshot' }, chatControl: { mode: 'cancel' },
+};
+const SETTABLE_CAM_BITS = ['UIHidden', 'CamToolActive', 'UseAutoShotSelection', 'UseTemporaryEdits', 'UseKeyAcceleration', 'UseKey10xAcceleration', 'UseMouseAimMode'];
 const ACTION_DEFAULTS = {
   chat: { text: '' }, macro: { n: 1 }, camera: { mode: 'car', car: '{car}', group: '', camera: 0 },
   replay: { op: 'play' }, broadcast: { msg: 0, var1: 0, var2: 0 }, delay: { ms: 250 },
+  key: { keys: '', holdMs: 0 }, pit: { cmd: 'tearoff', value: 0 },
+  sdk: { op: 'camState', mode: 'toggle', bits: ['UIHidden'] },
+};
+const PIT_LABELS = {
+  tearoff: 'Windshield tearoff', fastRepair: 'Fast repair', fuel: 'Add fuel', lf: 'Change LF tire', rf: 'Change RF tire',
+  lr: 'Change LR tire', rr: 'Change RR tire', clearTires: 'No tire change', clearTearoff: 'Cancel tearoff',
+  clearFastRepair: 'Cancel fast repair', clearFuel: 'No fuel', compound: 'Tire compound', clear: 'Clear all pit requests',
 };
 const REPLAY_SEARCH = [['prevIncident', 'Previous incident'], ['nextIncident', 'Next incident'], ['prevLap', 'Previous lap'], ['nextLap', 'Next lap'], ['prevFrame', 'Previous frame'], ['nextFrame', 'Next frame'], ['prevSession', 'Previous session'], ['nextSession', 'Next session'], ['toStart', 'To start'], ['toEnd', 'To end']];
 
@@ -1550,7 +1795,7 @@ function actionsEditor(draft) {
   };
   const actionCard = (a, i) => {
     const body = h('div');
-    const drawBody = () => body.replaceChildren(...actionFields(a, drawBody));
+    const drawBody = () => body.replaceChildren(...actionFields(a, drawBody).filter(Boolean));
     drawBody();
     return h('div', { class: 'action-card' },
       h('div', { class: 'a-head' },
@@ -1591,6 +1836,64 @@ function actionFields(a, redraw) {
     }
     case 'delay':
       return [fNum(a, 'ms', 'Milliseconds', { min: 0, max: 10000, step: 50 })];
+    case 'key':
+      return [
+        fText(a, 'keys', 'Key combo', { placeholder: 'ctrl+shift+i' },
+          'Must match the key bound to this control in iRacing (Options → Controls). Examples: ctrl+shift+i, f5, alt+num7, ctrl+up. '
+          + 'Tip: click a control\'s binding in iRacing, then press this button to bind it.'),
+        fNum(a, 'holdMs', 'Hold for (ms)', { min: 0, max: 5000, step: 50, hint: 'Keep the key down, e.g. 1500 for a starter. 0 = tap.' }),
+      ];
+    case 'sdk': {
+      const out = [fSel(a, 'op', 'Command', Object.entries(SDK_OPS), () => { Object.assign(a, SDK_OP_DEFAULTS[a.op]); redraw(); })];
+      switch (a.op) {
+        case 'camState':
+          out.push(fSel(a, 'mode', 'Change', [['toggle', 'Toggle'], ['on', 'Turn on'], ['off', 'Turn off'], ['set', 'Set exactly (others off)']]));
+          a.bits = a.bits || [];
+          out.push(h('div', { class: 'field' }, h('span', {}, 'Flags'), ...SETTABLE_CAM_BITS.map((b) => h('label', { class: 'check' },
+            h('input', { type: 'checkbox', checked: a.bits.includes(b), onchange: (e) => { a.bits = e.target.checked ? [...a.bits, b] : a.bits.filter((x) => x !== b); } }),
+            b.replace(/([a-z])([A-Z])/g, '$1 $2')))));
+          break;
+        case 'replayPosition':
+          out.push(h('div', { class: 'row' },
+            fSel(a, 'mode', 'From', [['current', 'Current frame'], ['begin', 'Start of tape'], ['end', 'End of tape']]),
+            fText(a, 'frame', 'Frames', {}, '60 frames = 1 s. Negative = backwards.')));
+          break;
+        case 'replaySessionTime':
+          out.push(h('div', { class: 'row' },
+            fText(a, 'session', 'Session #', { placeholder: 'current' }),
+            fText(a, 'seconds', 'Session time (s)', {}, 'e.g. {input:Seconds=0}')));
+          break;
+        case 'eraseTape':
+          out.push(h('p', { class: 'hint' }, 'Deletes the replay recorded so far. Consider hold-to-fire + confirmation on this button.'));
+          break;
+        case 'reloadTextures':
+          out.push(fText(a, 'carIdx', 'Car index', { placeholder: 'blank = all cars' }, '{idx} = the target car'));
+          break;
+        case 'telemetry':
+          out.push(fSel(a, 'cmd', 'Recording', [['start', 'Start'], ['stop', 'Stop'], ['restart', 'Restart (new file)']]));
+          break;
+        case 'ffb':
+          out.push(fText(a, 'nm', 'Max force (Nm)', {}, 'e.g. 55, or ask when pressed: {input:Nm=55}'));
+          break;
+        case 'video':
+          out.push(fSel(a, 'cmd', 'Action', [['screenshot', 'Screenshot'], ['toggle', 'Toggle recording'], ['start', 'Start recording'], ['end', 'Stop recording'], ['showTimer', 'Show video timer'], ['hideTimer', 'Hide video timer']]));
+          break;
+        case 'chatControl':
+          out.push(fSel(a, 'mode', 'Action', [['begin', 'Open chat'], ['reply', 'Reply to last message'], ['cancel', 'Close chat']]));
+          break;
+      }
+      return out;
+    }
+    case 'pit': {
+      const withValue = ['fuel', 'lf', 'rf', 'lr', 'rr', 'compound'];
+      return [
+        fSel(a, 'cmd', 'Pit command', Object.entries(PIT_LABELS), redraw),
+        withValue.includes(a.cmd)
+          ? fText(a, 'value', a.cmd === 'fuel' ? 'Liters to add (0 = keep current amount)' : a.cmd === 'compound' ? 'Compound index' : 'Pressure kPa (0 = keep current)', {}, 'Can also be asked when pressed: {input:Liters=20}')
+          : null,
+        h('p', { class: 'hint' }, 'Sets your pit-stop request for the car driven on the PC (no window focus needed).'),
+      ];
+    }
     case 'broadcast':
       return [h('div', { class: 'row' }, fNum(a, 'msg', 'Msg'), fNum(a, 'var1', 'var1'), fNum(a, 'var2', 'var2'), fNum(a, 'var3', 'var3 (opt)')),
         h('p', { class: 'hint' }, 'Sends irsdk_broadcastMsg(msg, var1, var2[, var3]) directly — see the iRacing SDK docs.')];
@@ -1630,7 +1933,8 @@ function openItemEditor(item, isNew = false) {
       case 'tile':
         f.push(fText(draft, 'label', 'Label'));
         f.push(fText(draft, 'source', 'Telemetry source', { list: 'varList', placeholder: 'SessionLapsRemainEx' },
-          'Any iRacing variable. Per-car arrays take an index: CarIdxPosition[target], [cam], [player] or [5]. Derived values start with @.'));
+          'Any iRacing variable. Per-car arrays take an index: CarIdxPosition[target], [cam], [player] or [5]. Derived values start with @. '
+          + 'Session info uses si: paths, e.g. si:WeekendInfo.TrackSkies or si:DriverInfo.Drivers[target].IRating (browse them at /api/session).'));
         f.push(h('div', { class: 'row' },
           fSel(draft, 'format', 'Format', Object.keys(FORMATS).map((k) => [k, k])),
           fNum(draft, 'decimals', 'Decimals', { min: 0, max: 6 }),
@@ -1691,6 +1995,7 @@ $('#targetChip').addEventListener('click', () => openPicker());
 let lastWide = isWide();
 window.addEventListener('resize', () => { if (isWide() !== lastWide) { lastWide = isWide(); renderBoard(); } });
 new ResizeObserver(() => fitBoard()).observe($('#board'));
+bindSwipe();
 document.addEventListener('gesturestart', (e) => e.preventDefault()); // iOS pinch-zoom
 // URL overrides, handy for per-device bookmarks: ?layout=narrow&page=drivers&target=5
 {

@@ -17,6 +17,33 @@
       ]
     },
     {
+      "id": "car",
+      "name": "Car",
+      "columns": { "narrow": 3, "wide": 6 },
+      "items": [
+        { "id": "cc-l1", "type": "label", "label": "Car controls — bind these keys in iRacing", "w": 6, "h": 1 },
+        { "id": "cc-ign", "type": "button", "label": "Ignition", "icon": "🔑", "color": "#374151", "w": 1, "h": 1, "actions": [ { "type": "key", "keys": "ctrl+shift+i", "holdMs": 0 } ] },
+        { "id": "cc-start", "type": "button", "label": "Starter", "sub": "hold 1.5s", "icon": "⚡", "color": "#374151", "w": 1, "h": 1, "actions": [ { "type": "key", "keys": "ctrl+shift+s", "holdMs": 1500 } ] },
+        { "id": "cc-lim", "type": "button", "label": "Pit Limiter", "icon": "🅿", "color": "#0369a1", "w": 1, "h": 1, "actions": [ { "type": "key", "keys": "ctrl+shift+l", "holdMs": 0 } ] },
+        { "id": "cc-head", "type": "button", "label": "Headlights", "icon": "💡", "color": "#374151", "w": 1, "h": 1, "actions": [ { "type": "key", "keys": "ctrl+shift+h", "holdMs": 0 } ] },
+        { "id": "cc-flash", "type": "button", "label": "Flash", "icon": "✦", "color": "#374151", "w": 1, "h": 1, "actions": [ { "type": "key", "keys": "ctrl+shift+f", "holdMs": 0 } ] },
+        { "id": "cc-wipe", "type": "button", "label": "Wipers", "icon": "🌧", "color": "#374151", "w": 1, "h": 1, "actions": [ { "type": "key", "keys": "ctrl+shift+w", "holdMs": 0 } ] },
+        { "id": "cc-bm", "type": "button", "label": "Bias −", "icon": "◀", "color": "#374151", "w": 1, "h": 1, "actions": [ { "type": "key", "keys": "ctrl+shift+[", "holdMs": 0 } ] },
+        { "id": "cc-bp", "type": "button", "label": "Bias +", "icon": "▶", "color": "#374151", "w": 1, "h": 1, "actions": [ { "type": "key", "keys": "ctrl+shift+]", "holdMs": 0 } ] },
+        { "id": "cc-bias", "type": "tile", "label": "Brake Bias", "source": "dcBrakeBias", "format": "float", "decimals": 1, "suffix": "%", "w": 1, "h": 1 },
+        { "id": "cc-l2", "type": "label", "label": "Pit service", "w": 6, "h": 1 },
+        { "id": "ps-fuel", "type": "button", "label": "Add Fuel", "icon": "⛽", "color": "#0f766e", "w": 1, "h": 1, "actions": [ { "type": "pit", "cmd": "fuel", "value": "{input:Liters=20}" } ] },
+        { "id": "ps-nofuel", "type": "button", "label": "No Fuel", "icon": "⛽", "color": "#334155", "w": 1, "h": 1, "actions": [ { "type": "pit", "cmd": "clearFuel", "value": 0 } ] },
+        { "id": "ps-tires", "type": "button", "label": "4 Tires", "icon": "◎", "color": "#0f766e", "w": 1, "h": 1, "actions": [ { "type": "pit", "cmd": "lf", "value": 0 }, { "type": "pit", "cmd": "rf", "value": 0 }, { "type": "pit", "cmd": "lr", "value": 0 }, { "type": "pit", "cmd": "rr", "value": 0 } ] },
+        { "id": "ps-notires", "type": "button", "label": "No Tires", "icon": "◎", "color": "#334155", "w": 1, "h": 1, "actions": [ { "type": "pit", "cmd": "clearTires", "value": 0 } ] },
+        { "id": "ps-tear", "type": "button", "label": "Tearoff", "icon": "🪟", "color": "#0f766e", "w": 1, "h": 1, "actions": [ { "type": "pit", "cmd": "tearoff", "value": 0 } ] },
+        { "id": "ps-fr", "type": "button", "label": "Fast Repair", "icon": "🔧", "color": "#0f766e", "w": 1, "h": 1, "actions": [ { "type": "pit", "cmd": "fastRepair", "value": 0 } ] },
+        { "id": "ps-clear", "type": "button", "label": "Clear Pit", "icon": "✕", "color": "#7f1d1d", "w": 1, "h": 1, "actions": [ { "type": "pit", "cmd": "clear", "value": 0 } ] },
+        { "id": "ps-req", "type": "tile", "label": "Pit Request", "source": "PitSvFlags", "format": "pitSvFlags", "w": 1, "h": 1 },
+        { "id": "ps-fuelreq", "type": "tile", "label": "Pit Fuel", "source": "PitSvFuel", "format": "float", "decimals": 1, "suffix": " L", "w": 1, "h": 1 }
+      ]
+    },
+    {
       "id": "control",
       "name": "Control",
       "columns": { "narrow": 3, "wide": 6 },
