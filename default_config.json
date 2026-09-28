@@ -2,6 +2,21 @@
   "version": 1,
   "pages": [
     {
+      "id": "mycar",
+      "name": "My Car",
+      "columns": { "narrow": 3, "wide": 6 },
+      "items": [
+        { "id": "mc", "type": "mycar", "w": 6, "h": 3, "units": "metric" },
+        { "id": "mc-fuel", "type": "tile", "label": "Fuel", "source": "FuelLevel", "format": "float", "decimals": 1, "suffix": " L", "w": 1, "h": 1 },
+        { "id": "mc-fpl", "type": "tile", "label": "Fuel / Lap", "source": "Calc_FuelPerLap", "format": "float", "decimals": 2, "suffix": " L", "w": 1, "h": 1 },
+        { "id": "mc-fll", "type": "tile", "label": "Laps of Fuel", "source": "Calc_FuelLapsLeft", "format": "float", "decimals": 1, "w": 1, "h": 1 },
+        { "id": "mc-ftf", "type": "tile", "label": "Fuel to Finish", "source": "Calc_FuelToFinish", "format": "float", "decimals": 1, "suffix": " L", "w": 1, "h": 1 },
+        { "id": "mc-water", "type": "tile", "label": "Water", "source": "WaterTemp", "format": "float", "decimals": 0, "suffix": "°C", "w": 1, "h": 1 },
+        { "id": "mc-bias", "type": "tile", "label": "Brake Bias", "source": "dcBrakeBias", "format": "float", "decimals": 1, "suffix": "%", "w": 1, "h": 1 },
+        { "id": "mc-in", "type": "inputs", "w": 6, "h": 1 }
+      ]
+    },
+    {
       "id": "control",
       "name": "Control",
       "columns": { "narrow": 3, "wide": 6 },

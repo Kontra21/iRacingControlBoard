@@ -44,6 +44,16 @@ delays or switch to the "Background" typing method.
 - **Hold-to-fire:** dangerous buttons (DQ, remove) only fire after you hold them down.
 - **Command log:** records every command, which device sent it, and whether it failed.
 
+## My Car
+
+The **My Car** page is for the car being driven on the PC running the server:
+
+- **Dash:** position (overall and class), lap, gear, speed, RPM bar with shift lights (using your car's shift points from iRacing), live delta to your best lap, current/last/best lap times, incidents, and pit limiter / engine warnings.
+- **Fuel calculator:** fuel per lap (average of the last 5 green laps; laps with a pit visit are skipped), laps of fuel left, laps to go, and fuel still needed to finish. It runs on the server, so it keeps counting while your phone sleeps. Tiles can show these as `Calc_FuelPerLap`, `Calc_FuelLapsLeft`, `Calc_LapsRemaining` and `Calc_FuelToFinish`.
+- **Pedal inputs** and tiles for any other car telemetry (water/oil temp, brake bias…).
+
+When you're spectating (e.g. as league admin) the dash says so instead of showing zeros.
+
 ## Customizing
 
 Tap **✎** to edit the layout.

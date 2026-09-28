@@ -13,10 +13,12 @@ NAMES = [
     "Alex Morgan", "Sam Rivera", "Jordan Blake", "Casey Nguyen", "Taylor Brooks", "Riley Chen",
     "Jamie Fox", "Morgan Patel", "Drew Kowalski", "Quinn O'Neill", "Avery Schmidt", "Reese Tanaka",
     "Parker Dubois", "Rowan Silva", "Skyler Novak", "Emerson Hale", "Finley Park", "Hayden Cruz",
-    "Kendall Ross", "Logan Weiss",
+    "Kendall Ross", "Logan Weiss", "You (demo)",
 ]
-NUMS = ["3", "7", "11", "14", "19", "22", "24", "31", "42", "48", "5", "9", "12", "17", "20", "01", "33", "55", "77", "88"]
+NUMS = ["3", "7", "11", "14", "19", "22", "24", "31", "42", "48", "5", "9", "12", "17", "20", "01", "33", "55", "77", "88", "99"]
 CAR_SLOTS = 64
+ME = len(NAMES)  # the demo "you" is the last car
+SHIFT = {"idleRpm": 1100, "slFirst": 6800, "slShift": 7600, "slLast": 7900, "slBlink": 8000, "redline": 8200}
 FLAG_GREEN, FLAG_YELLOW, FLAG_YELLOW_WAVING = 0x4, 0x8, 0x100
 FLAG_CAUTION, FLAG_CAUTION_WAVING, FLAG_BLACK, FLAG_DQ, FLAG_FURLED = 0x4000, 0x8000, 0x10000, 0x20000, 0x80000
 
@@ -42,6 +44,22 @@ VARS = {
     "CarIdxLastLapTime": ("Cars last lap time", "s"),
     "CarIdxBestLapTime": ("Cars best lap time", "s"),
     "CarIdxSessionFlags": ("Session flags for each player", "irsdk_Flags"),
+    "Speed": ("GPS vehicle speed", "m/s"), "RPM": ("Engine rpm", "revs/min"), "Gear": ("-1=reverse 0=neutral 1..n=current gear", ""),
+    "Throttle": ("0=off throttle to 1=full throttle", "%"), "Brake": ("0=brake released to 1=max pedal force", "%"),
+    "Clutch": ("0=disengaged to 1=fully engaged", "%"), "SteeringWheelAngle": ("Steering wheel angle", "rad"),
+    "FuelLevel": ("Liters of fuel remaining", "l"), "FuelLevelPct": ("Percent fuel remaining", "%"),
+    "FuelUsePerHour": ("Engine fuel used instantaneous", "kg/h"),
+    "Lap": ("Laps started count", ""), "LapCompleted": ("Laps completed count", ""), "LapDistPct": ("Percentage distance around lap", "%"),
+    "LapCurrentLapTime": ("Estimate of players current lap time", "s"), "LapLastLapTime": ("Players last lap time", "s"),
+    "LapBestLapTime": ("Players best lap time", "s"), "LapDeltaToBestLap": ("Delta time for best lap", "s"),
+    "LapDeltaToBestLap_OK": ("Delta time for best lap is valid", ""),
+    "PlayerCarPosition": ("Players position in race", ""), "PlayerCarClassPosition": ("Players class position in race", ""),
+    "PlayerCarMyIncidentCount": ("Incident count for this driver", ""), "PlayerCarTeamIncidentCount": ("Incident count for team", ""),
+    "OnPitRoad": ("Is the player car on pit road between the cones", ""), "IsOnTrack": ("1=Car on track physics running", ""),
+    "PlayerTrackSurface": ("Players car track surface type", "irsdk_TrkLoc"),
+    "WaterTemp": ("Engine coolant temp", "C"), "OilTemp": ("Engine oil temperature", "C"), "OilPress": ("Engine oil pressure", "bar"),
+    "Voltage": ("Engine voltage", "V"), "dcBrakeBias": ("In car brake bias adjustment", "%"),
+    "EngineWarnings": ("Bitfield for warning lights", "irsdk_EngineWarnings"),
 }
 
 
@@ -98,11 +116,14 @@ class DemoSource:
                 "IRating": 1500 + (c["idx"] * 137) % 3000, "LicString": "A 3.21", "LicColor": 0x0153DB,
                 "CurDriverIncidentCount": c["inc"], "TeamIncidentCount": c["inc"],
             })
-        drivers.append({"CarIdx": 21, "UserName": "League Admin", "CarNumber": "", "IsSpectator": 1})
         si = {
             "WeekendInfo": {"TrackDisplayName": "Demo Raceway", "TrackConfigName": "Grand Prix",
                             "EventType": "Race", "SessionID": 1, "SubSessionID": 424242},
-            "DriverInfo": {"DriverCarIdx": 21, "Drivers": drivers},
+            "DriverInfo": {"DriverCarIdx": ME, "DriverUserID": 100000 + ME, "Drivers": drivers,
+                           "DriverCarIdleRPM": SHIFT["idleRpm"], "DriverCarRedLine": SHIFT["redline"],
+                           "DriverCarSLFirstRPM": SHIFT["slFirst"], "DriverCarSLShiftRPM": SHIFT["slShift"],
+                           "DriverCarSLLastRPM": SHIFT["slLast"], "DriverCarSLBlinkRPM": SHIFT["slBlink"],
+                           "DriverCarFuelMaxLtr": 100.0, "DriverCarEstLapTime": 89.0},
             "SessionInfo": {"Sessions": [
                 {"SessionNum": 0, "SessionType": "Practice", "SessionName": "PRACTICE", "SessionLaps": "unlimited"},
                 {"SessionNum": 1, "SessionType": "Lone Qualify", "SessionName": "QUALIFY", "SessionLaps": 2},
@@ -163,12 +184,47 @@ class DemoSource:
             "SessionTime": round(t, 3), "SessionTimeRemain": max(0.0, 3600 - t),
             "SessionLapsRemainEx": max(0, 40 - leader_lap), "SessionNum": 2, "SessionState": 4,
             "SessionFlags": flags, "PaceMode": 4 if self.caution_at is None else 2,
-            "CamCarIdx": self.cam_idx, "PlayerCarIdx": 21, "AirTemp": 22.4, "TrackTempCrew": 31.7,
+            "CamCarIdx": self.cam_idx, "PlayerCarIdx": ME, "AirTemp": 22.4, "TrackTempCrew": 31.7,
             "CarIdxPosition": pos, "CarIdxClassPosition": cpos, "CarIdxLap": lap, "CarIdxLapCompleted": lapc,
             "CarIdxLapDistPct": pct, "CarIdxOnPitRoad": pit, "CarIdxTrackSurface": surf,
             "CarIdxLastLapTime": last, "CarIdxBestLapTime": best, "CarIdxSessionFlags": cflags,
         }
+        values.update(self._my_car(t, lap, lapc, pct, pit, surf, last, best, pos, cpos))
         return {n: values[n] for n in names if n in values}
+
+    def _my_car(self, t, lap, lapc, pct, pit, surf, last, best, pos, cpos):
+        """Synthesized dash data for the demo player's car."""
+        me = self.cars[ME - 1]
+        p = pct[ME]
+
+        def speed_at(x):  # three fast straights and three slow corners per lap, m/s
+            return 26 + 44 * ((0.5 + 0.5 * math.cos(2 * math.pi * 3 * x)) ** 0.7)
+
+        in_pit = pit[ME]
+        speed = 22.0 if in_pit else speed_at(p)
+        dv = speed_at(p + 0.004) - speed
+        gears = [0, 20, 30, 40, 50, 60, 99]
+        gear = next(g for g in range(1, 7) if speed < gears[g])
+        span = (speed - gears[gear - 1]) / (gears[gear] - gears[gear - 1])
+        rpm = min(SHIFT["redline"], 4600 + span * 3500)
+        throttle = 0.35 if in_pit else (1.0 if dv > -0.05 else max(0.0, 0.3 + dv))
+        brake = 0.0 if in_pit or dv > -0.4 else min(1.0, -dv / 3)
+        dist = lapc[ME] + p
+        fuel = max(2.0, 62.0 - 2.55 * dist - 0.12 * math.sin(lapc[ME]))
+        return {
+            "Speed": round(speed, 2), "RPM": round(rpm), "Gear": gear, "Throttle": round(throttle, 3),
+            "Brake": round(brake, 3), "Clutch": 1.0, "SteeringWheelAngle": round(0.9 * math.sin(2 * math.pi * 3 * p + 1.2), 3),
+            "FuelLevel": round(fuel, 3), "FuelLevelPct": round(fuel / 100.0, 4), "FuelUsePerHour": round(30 + 60 * throttle, 1),
+            "Lap": lap[ME], "LapCompleted": lapc[ME], "LapDistPct": p,
+            "LapCurrentLapTime": round(p * me["lap_time"], 3), "LapLastLapTime": last[ME], "LapBestLapTime": best[ME],
+            "LapDeltaToBestLap": round(0.45 * math.sin(t / 9), 3), "LapDeltaToBestLap_OK": lapc[ME] > 0,
+            "PlayerCarPosition": pos[ME], "PlayerCarClassPosition": cpos[ME],
+            "PlayerCarMyIncidentCount": me["inc"], "PlayerCarTeamIncidentCount": me["inc"],
+            "OnPitRoad": in_pit, "IsOnTrack": True, "PlayerTrackSurface": surf[ME],
+            "WaterTemp": round(88 + 3 * math.sin(t / 40), 1), "OilTemp": round(101 + 4 * math.sin(t / 55), 1),
+            "OilPress": 4.8, "Voltage": 13.8, "dcBrakeBias": 54.5,
+            "EngineWarnings": 0x10 if in_pit else 0,
+        }
 
     # reactions to commands, so buttons visibly do something in demo mode
     def idx_for_num(self, num):

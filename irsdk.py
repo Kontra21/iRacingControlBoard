@@ -108,7 +108,20 @@ def build_session_digest(si):
         {"num": g.get("GroupNum"), "name": g.get("GroupName")}
         for g in (si.get("CameraInfo") or {}).get("Groups") or []
     ]
+    player = {
+        "idx": di.get("DriverCarIdx"),
+        "userId": di.get("DriverUserID"),
+        "idleRpm": di.get("DriverCarIdleRPM"),
+        "redline": di.get("DriverCarRedLine"),
+        "slFirst": di.get("DriverCarSLFirstRPM"),
+        "slShift": di.get("DriverCarSLShiftRPM"),
+        "slLast": di.get("DriverCarSLLastRPM"),
+        "slBlink": di.get("DriverCarSLBlinkRPM"),
+        "fuelMax": di.get("DriverCarFuelMaxLtr"),
+        "estLap": di.get("DriverCarEstLapTime"),
+    }
     return {
+        "player": player,
         "track": wi.get("TrackDisplayName") or "",
         "trackConfig": wi.get("TrackConfigName") or "",
         "eventType": wi.get("EventType") or "",

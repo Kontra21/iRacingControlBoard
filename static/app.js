@@ -76,6 +76,8 @@ const FLAG = {
 const SESSION_STATES = ['Invalid', 'Get In Car', 'Warmup', 'Parade Laps', 'Racing', 'Checkered', 'Cool Down'];
 const PACE_MODES = ['Single File Start', 'Double File Start', 'Single File Restart', 'Double File Restart', 'Not Pacing'];
 const TRACK_SURFACES = { '-1': 'Not in World', 0: 'Off Track', 1: 'In Pit Stall', 2: 'Approaching Pits', 3: 'On Track' };
+const ENGINE_WARN = [[0x10, 'LIMITER', 'pit'], [0x20, 'REV LIMIT', 'off'], [0x08, 'STALLED', 'dq'], [0x01, 'WATER TEMP', 'dq'],
+  [0x40, 'OIL TEMP', 'dq'], [0x04, 'OIL PRESS', 'dq'], [0x02, 'FUEL PRESS', 'dq']];
 
 function flagInfo(f) {
   if (f == null) return { text: '—', cls: 'flag-none' };
@@ -127,6 +129,9 @@ const FORMATS = {
   paceMode: (v) => PACE_MODES[v] ?? String(v),
   trackSurface: (v) => TRACK_SURFACES[v] ?? String(v),
   speed: (v, it) => `${(v * 3.6).toFixed(it.decimals ?? 0)}`,
+  mph: (v, it) => `${(v * 2.23694).toFixed(it.decimals ?? 0)}`,
+  gallons: (v, it) => (v * 0.264172).toFixed(it.decimals ?? 2),
+  delta: (v, it) => `${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v).toFixed(it.decimals ?? 3)}`,
 };
 
 /* =====================================================================================
@@ -201,7 +206,13 @@ const DERIVED = {
   carCount: () => allCars().length,
   totalIncidents: () => allCars().reduce((a, c) => a + (c.inc || 0), 0),
   subSessionId: () => S.session?.subSessionId ?? null,
+  myName: () => myDriver()?.name ?? null,
+  myCar: () => myDriver()?.car ?? null,
 };
+function myDriver() {
+  const idx = S.session?.player?.idx ?? S.session?.playerIdx;
+  return S.session?.drivers?.find((d) => d.idx === idx) || null;
+}
 function readSource(src) {
   if (!src) return null;
   if (src.startsWith('@')) return DERIVED[src.slice(1)]?.() ?? null;
@@ -380,9 +391,11 @@ function onMessage(m) {
 
 function sendSubs() {
   const vars = new Set();
-  for (const p of S.config?.pages || []) {
+  for (const p of [...(S.config?.pages || []), S.config?.driverSheet].filter(Boolean)) {
     for (const it of p.items || []) {
       if (it.type === 'tile') { const v = sourceVarName(it.source); if (v) vars.add(v); }
+      if (it.type === 'mycar') MYCAR_VARS.forEach((v) => vars.add(v));
+      if (it.type === 'inputs') INPUT_VARS.forEach((v) => vars.add(v));
     }
   }
   send({ t: 'sub', vars: [...vars] });
@@ -553,8 +566,103 @@ function renderItem(item) {
     case 'flag': return renderFlag(item);
     case 'log': return renderLog(item);
     case 'label': return { el: h('div', { class: 'label-item' }, item.label || '') };
+    case 'mycar': return renderMyCar(item);
+    case 'inputs': return renderInputs(item);
   }
   return { el: h('div', { class: 'panel tile' }, h('span', { class: 't-label' }, `Unknown: ${item.type}`)) };
+}
+
+// ---------- my car (the car driven on the host PC) -------------------------------------
+const MYCAR_VARS = ['IsOnTrack', 'OnPitRoad', 'Speed', 'RPM', 'Gear', 'Lap', 'LapCurrentLapTime', 'LapLastLapTime',
+  'LapBestLapTime', 'LapDeltaToBestLap', 'LapDeltaToBestLap_OK', 'PlayerCarPosition', 'PlayerCarClassPosition',
+  'PlayerCarMyIncidentCount', 'EngineWarnings', 'FuelLevel'];
+const INPUT_VARS = ['Throttle', 'Brake', 'Clutch', 'IsOnTrack'];
+
+function shiftPoints() {
+  const p = S.session?.player || {};
+  const red = p.redline || 0;
+  const first = p.slFirst || red * 0.8, shift = p.slShift || red * 0.92, blink = p.slBlink || p.slLast || red * 0.97;
+  return { red: red || blink || 8000, first, shift, blink };
+}
+
+function renderMyCar(item) {
+  const imperial = item.units === 'imperial';
+  const t = (cls, txt = '') => h('span', { class: cls }, txt);
+  const r = {
+    pos: t('mc-pos'), cpos: t('mc-cpos'), lap: t('mc-lap'), inc: t('mc-inc'), tags: t('mc-tags'),
+    rpmFill: t('mc-rpm-fill'), lights: h('div', { class: 'mc-lights' }, Array.from({ length: 10 }, () => h('i'))),
+    gear: t('mc-gear'), speed: t('mc-speed'), deltaVal: t('mc-delta-val'), deltaBar: t('mc-delta-bar'),
+    cur: t('mc-t'), last: t('mc-t'), best: t('mc-t'), rpm: t('mc-rpmnum'), msg: h('div', { class: 'mc-msg' }),
+  };
+  const el = h('div', { class: 'panel mycar' },
+    h('div', { class: 'mc-top' }, h('span', {}, r.pos, r.cpos), r.lap, r.inc, r.tags),
+    h('div', { class: 'mc-rpm' }, r.rpmFill, r.lights),
+    h('div', { class: 'mc-mid' },
+      h('div', { class: 'mc-gearbox' }, r.gear, r.rpm),
+      h('div', { class: 'mc-speedbox' }, r.speed, t('mc-unit', imperial ? 'mph' : 'km/h')),
+      h('div', { class: 'mc-delta' }, t('mc-cap', 'Δ best'), r.deltaVal, h('div', { class: 'mc-delta-track' }, r.deltaBar))),
+    h('div', { class: 'mc-times' },
+      h('div', {}, t('mc-cap', 'Current'), r.cur), h('div', {}, t('mc-cap', 'Last'), r.last), h('div', {}, t('mc-cap', 'Best'), r.best)),
+    r.msg);
+  const lights = [...r.lights.children];
+  const set = (node, v) => { if (node.textContent !== v) node.textContent = v; };
+  return {
+    el,
+    update: () => {
+      const T = S.tel;
+      const driving = !!T.IsOnTrack;
+      el.classList.toggle('idle', !driving);
+      const me = myDriver();
+      set(r.msg, driving ? '' : !S.status.connected ? 'iRacing not running' : me && !me.spectator ? `${me.name} — not on track` : 'Not driving (spectating)');
+      set(r.pos, T.PlayerCarPosition > 0 ? `P${T.PlayerCarPosition}` : 'P—');
+      set(r.cpos, T.PlayerCarClassPosition > 0 && me?.classShort ? ` ${me.classShort} P${T.PlayerCarClassPosition}` : '');
+      set(r.lap, T.Lap > 0 ? `Lap ${T.Lap}` : '');
+      set(r.inc, T.PlayerCarMyIncidentCount != null ? `${T.PlayerCarMyIncidentCount}x` : '');
+      r.inc.classList.toggle('hi', T.PlayerCarMyIncidentCount >= 8);
+      const tags = ENGINE_WARN.filter(([bit]) => (T.EngineWarnings & bit) !== 0);
+      if (T.OnPitRoad && !tags.some(([bit]) => bit === 0x10)) tags.unshift([0, 'PIT', 'pit']);
+      const tagKey = tags.map((x) => x[1]).join();
+      if (r.tags.dataset.k !== tagKey) { r.tags.dataset.k = tagKey; r.tags.replaceChildren(...tags.map(([, txt, cls]) => h('span', { class: `tag ${cls}` }, txt))); }
+
+      const rpm = T.RPM || 0;
+      const sp = shiftPoints();
+      r.rpmFill.style.width = `${Math.min(100, (rpm / sp.red) * 100)}%`;
+      const lit = rpm <= sp.first ? 0 : Math.min(10, Math.ceil(((rpm - sp.first) / Math.max(1, sp.shift - sp.first)) * 10));
+      lights.forEach((l, i) => { l.className = i < lit ? (i < 4 ? 'g' : i < 7 ? 'y' : 'r') : ''; });
+      r.lights.classList.toggle('blink', rpm >= sp.blink);
+      set(r.rpm, rpm ? `${Math.round(rpm)} rpm` : '');
+      set(r.gear, T.Gear == null ? '—' : T.Gear < 0 ? 'R' : T.Gear === 0 ? 'N' : String(T.Gear));
+      set(r.speed, T.Speed == null ? '—' : String(Math.round(T.Speed * (imperial ? 2.23694 : 3.6))));
+
+      const d = T.LapDeltaToBestLap_OK ? T.LapDeltaToBestLap : null;
+      set(r.deltaVal, d == null ? '—' : FORMATS.delta(d, { decimals: 2 }));
+      r.deltaVal.className = 'mc-delta-val' + (d == null ? '' : d > 0 ? ' slower' : ' faster');
+      const w = d == null ? 0 : Math.min(50, Math.abs(d) * 50); // full half-bar = 1 second
+      r.deltaBar.style.cssText = d == null ? 'width:0' : `width:${w}%;left:${d > 0 ? 50 : 50 - w}%;background:${d > 0 ? 'var(--bad)' : 'var(--ok)'}`;
+
+      set(r.cur, fmtLap(T.LapCurrentLapTime));
+      set(r.last, fmtLap(T.LapLastLapTime));
+      set(r.best, fmtLap(T.LapBestLapTime));
+    },
+  };
+}
+
+function renderInputs() {
+  const bar = (cls, label) => {
+    const fill = h('span', { class: `in-fill ${cls}` });
+    return { fill, el: h('div', { class: 'in-row' }, h('span', { class: 'in-label' }, label), h('div', { class: 'in-track' }, fill)) };
+  };
+  const th = bar('thr', 'THR'), br = bar('brk', 'BRK'), cl = bar('clu', 'CLU');
+  const el = h('div', { class: 'panel inputs' }, th.el, br.el, cl.el);
+  return {
+    el,
+    update: () => {
+      const T = S.tel;
+      th.fill.style.width = `${(T.Throttle || 0) * 100}%`;
+      br.fill.style.width = `${(T.Brake || 0) * 100}%`;
+      cl.fill.style.width = `${T.Clutch == null ? 0 : (1 - T.Clutch) * 100}%`; // iRacing: 1 = fully engaged (pedal up)
+    },
+  };
 }
 
 // ---------- button --------------------------------------------------------------------
@@ -1359,6 +1467,26 @@ const PRESETS = [
     replayBtn('Next Lap', '↷', { op: 'search', mode: 'nextLap' }),
     replayBtn('Go Live', '●', { op: 'live' }),
   ]],
+  ['My car', [
+    { type: 'mycar', w: 12, h: 3, units: 'metric', _desc: 'Dash: gear, speed, shift lights, delta, laps' },
+    { type: 'inputs', w: 12, h: 1, _desc: 'Throttle / brake / clutch' },
+    tile('Fuel', 'FuelLevel', 'float', { decimals: 1, suffix: ' L' }),
+    tile('Fuel / Lap', 'Calc_FuelPerLap', 'float', { decimals: 2, suffix: ' L' }),
+    tile('Laps of Fuel', 'Calc_FuelLapsLeft', 'float', { decimals: 1 }),
+    tile('Fuel to Finish', 'Calc_FuelToFinish', 'float', { decimals: 1, suffix: ' L' }),
+    tile('Laps to Go', 'Calc_LapsRemaining', 'float', { decimals: 1 }),
+    tile('My Incidents', 'PlayerCarMyIncidentCount', 'int', { suffix: 'x' }),
+    tile('Position', 'PlayerCarPosition', 'position'),
+    tile('Class Pos', 'PlayerCarClassPosition', 'position'),
+    tile('Δ Best', 'LapDeltaToBestLap', 'delta', { decimals: 2 }),
+    tile('Last Lap', 'LapLastLapTime', 'laptime'),
+    tile('Best Lap', 'LapBestLapTime', 'laptime'),
+    tile('Water', 'WaterTemp', 'float', { decimals: 0, suffix: '°C' }),
+    tile('Oil', 'OilTemp', 'float', { decimals: 0, suffix: '°C' }),
+    tile('Oil Press', 'OilPress', 'float', { decimals: 1, suffix: ' bar' }),
+    tile('Brake Bias', 'dcBrakeBias', 'float', { decimals: 1, suffix: '%' }),
+    tile('Speed', 'Speed', 'speed', { suffix: ' km/h' }),
+  ]],
   ['Telemetry tiles', [
     tile('Laps Left', 'SessionLapsRemainEx', 'laps'),
     tile('Time Left', 'SessionTimeRemain', 'time'),
@@ -1379,7 +1507,7 @@ const PRESETS = [
     tile('Track Pos', 'CarIdxLapDistPct[target]', 'pct'),
   ]],
 ];
-const TYPE_NAMES = { button: 'Button', tile: 'Telemetry tile', drivers: 'Driver list', target: 'Target car', flag: 'Flag', log: 'Command log', label: 'Section label' };
+const TYPE_NAMES = { button: 'Button', tile: 'Telemetry tile', drivers: 'Driver list', target: 'Target car', flag: 'Flag', log: 'Command log', label: 'Section label', mycar: 'My car dash', inputs: 'Pedal inputs' };
 
 function openAddItem() {
   const body = [];
@@ -1514,6 +1642,11 @@ function openItemEditor(item, isNew = false) {
         f.push(fSel(draft, 'sort', 'Default sort', [['position', 'Position'], ['running', 'Track order'], ['number', 'Car number'], ['incidents', 'Incidents'], ['name', 'Name']]));
         f.push(fSel(draft, 'tap', 'Tapping a driver', [['actions', 'Opens the driver popup'], ['select', 'Just selects them as target']]));
         f.push(fChk(draft, 'toggle', 'In select mode, tapping the selected driver clears the target'));
+        f.push(size);
+        break;
+      case 'mycar':
+        f.push(fSel(draft, 'units', 'Speed units', [['metric', 'km/h'], ['imperial', 'mph']]));
+        f.push(h('p', { class: 'hint' }, 'Shows the car being driven on the PC running the server. Shift lights use your car\'s shift points from iRacing.'));
         f.push(size);
         break;
       case 'label':

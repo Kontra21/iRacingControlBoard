@@ -313,3 +313,48 @@ input, select, textarea { font: inherit; font-size: max(16px, 1em); color: var(-
 .sheet-grid { --row-h: 70px; }
 @media (min-width: 700px) { .sheet-grid { --row-h: 84px; } }
 .tab.driver-tab { flex: 0 0 auto; color: #93c5fd; }
+/* ---------- my car dash ---------- */
+.mycar { container-type: size; position: relative; padding: 6px 10px; gap: 4px; }
+.mc-top { display: flex; align-items: center; gap: 10px; font-size: clamp(11px, min(6cqh, 4cqw), 16px); font-weight: 700; white-space: nowrap; min-height: 0; }
+.mc-pos { font-size: 1.35em; font-weight: 900; }
+.mc-cpos, .mc-lap, .mc-inc { color: var(--muted); font-variant-numeric: tabular-nums; }
+.mc-inc.hi { color: #fb923c; }
+.mc-tags { margin-left: auto; display: flex; gap: 4px; }
+.mc-rpm { position: relative; height: clamp(10px, 8cqh, 24px); background: var(--panel3); border-radius: 6px; overflow: hidden; flex: none; }
+.mc-rpm-fill { position: absolute; left: 0; top: 0; bottom: 0; background: linear-gradient(90deg, #16a34a, #eab308 70%, #dc2626); opacity: .35; transition: width .1s linear; }
+.mc-lights { position: absolute; inset: 2px; display: grid; grid-template-columns: repeat(10, 1fr); gap: 3px; }
+.mc-lights i { border-radius: 3px; background: rgb(255 255 255 / .06); }
+.mc-lights i.g { background: #22c55e; }
+.mc-lights i.y { background: #facc15; }
+.mc-lights i.r { background: #ef4444; }
+.mc-lights.blink i { background: #60a5fa; animation: shift-blink .16s steps(1) infinite; }
+@keyframes shift-blink { 50% { background: #ef4444; } }
+.mc-mid { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 1.25fr 1.2fr; align-items: center; gap: 6px; }
+.mc-mid > div { display: flex; flex-direction: column; align-items: center; justify-content: center; min-width: 0; }
+.mc-gear { font-size: clamp(26px, min(36cqh, 20cqw), 130px); font-weight: 900; line-height: 1; }
+.mc-rpmnum { color: var(--muted); font-size: clamp(9px, min(4.5cqh, 3cqw), 13px); font-variant-numeric: tabular-nums; }
+.mc-speed { font-size: clamp(20px, min(24cqh, 13cqw), 90px); font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; }
+.mc-unit, .mc-cap { color: var(--muted); font-size: clamp(9px, min(4.5cqh, 3cqw), 12px); text-transform: uppercase; letter-spacing: .06em; font-weight: 650; }
+.mc-delta-val { font-size: clamp(15px, min(14cqh, 8cqw), 50px); font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.mc-delta-val.faster { color: var(--ok); }
+.mc-delta-val.slower { color: var(--bad); }
+.mc-delta-track { position: relative; width: 90%; height: 6px; background: var(--panel3); border-radius: 3px; margin-top: 4px; }
+.mc-delta-track::after { content: ""; position: absolute; left: 50%; top: -2px; bottom: -2px; width: 2px; background: var(--muted); }
+.mc-delta-bar { position: absolute; top: 0; bottom: 0; border-radius: 3px; }
+.mc-times { display: grid; grid-template-columns: repeat(3, 1fr); flex: none; border-top: 1px solid var(--line); padding-top: 3px; }
+.mc-times > div { display: flex; flex-direction: column; align-items: center; }
+.mc-t { font-size: clamp(12px, min(8cqh, 5cqw), 28px); font-weight: 750; font-variant-numeric: tabular-nums; }
+.mycar.idle > :not(.mc-msg) { opacity: .25; }
+.mc-msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: clamp(13px, min(9cqh, 5cqw), 22px); pointer-events: none; text-align: center; padding: 10px; }
+.mc-msg:empty { display: none; }
+@container (max-height: 150px) { .mc-times, .mc-rpmnum { display: none; } }
+
+/* pedal inputs */
+.inputs { container-type: size; padding: 4px 10px; justify-content: center; gap: 3px; }
+.in-row { display: flex; align-items: center; gap: 8px; flex: 1; min-height: 0; max-height: 18px; }
+.in-label { width: 2.8em; font-size: clamp(9px, 10cqh, 12px); color: var(--muted); font-weight: 700; }
+.in-track { flex: 1; height: 100%; background: var(--panel3); border-radius: 4px; overflow: hidden; }
+.in-fill { display: block; height: 100%; width: 0; transition: width .08s linear; }
+.in-fill.thr { background: #22c55e; }
+.in-fill.brk { background: #ef4444; }
+.in-fill.clu { background: #3b82f6; }

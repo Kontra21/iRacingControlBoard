@@ -52,6 +52,71 @@ _CTRL = re.compile(r"[\x00-\x1f\x7f]")
 
 
 # --------------------------------------------------------------------------------------
+# Fuel calculator for the car being driven on this PC. Runs server-side so the history
+# survives phones sleeping/reloading.
+# --------------------------------------------------------------------------------------
+
+FUEL_VARS = ["SessionNum", "LapCompleted", "FuelLevel", "OnPitRoad", "IsOnTrack",
+             "SessionLapsRemainEx", "SessionTimeRemain", "LapLastLapTime", "LapBestLapTime"]
+CALC_VARS = {
+    "Calc_FuelPerLap": "Average fuel used per green lap (last 5, pit laps excluded)",
+    "Calc_FuelLapsLeft": "Laps the current fuel will last",
+    "Calc_LapsRemaining": "Estimated laps left in the session for you",
+    "Calc_FuelToFinish": "Extra fuel needed to reach the finish (0 = enough)",
+}
+
+
+class FuelTracker:
+    def __init__(self):
+        self.session = None
+        self.reset()
+
+    def reset(self):
+        self.laps = deque(maxlen=5)
+        self.last_lap = None
+        self.fuel_at_start = None
+        self.pitted = False
+
+    def update(self, d):
+        if d.get("SessionNum") != self.session:
+            self.session = d.get("SessionNum")
+            self.reset()
+        lap, fuel = d.get("LapCompleted"), d.get("FuelLevel")
+        if lap is None or fuel is None or not d.get("IsOnTrack"):
+            return
+        if d.get("OnPitRoad"):
+            self.pitted = True
+        if self.last_lap is None or lap < self.last_lap:
+            self.last_lap, self.fuel_at_start, self.pitted = lap, fuel, bool(d.get("OnPitRoad"))
+            return
+        if lap > self.last_lap:
+            used = (self.fuel_at_start or 0) - fuel
+            if lap == self.last_lap + 1 and not self.pitted and used > 0:
+                self.laps.append(used)
+            self.last_lap, self.fuel_at_start, self.pitted = lap, fuel, bool(d.get("OnPitRoad"))
+
+    def values(self, d):
+        if not self.laps:
+            return {}
+        per_lap = sum(self.laps) / len(self.laps)
+        out = {"Calc_FuelPerLap": round(per_lap, 3)}
+        fuel = d.get("FuelLevel")
+        if fuel is not None:
+            out["Calc_FuelLapsLeft"] = round(fuel / per_lap, 2)
+        laps_left = d.get("SessionLapsRemainEx")
+        if laps_left is None or laps_left >= 32767:
+            lap_time = d.get("LapLastLapTime") or 0
+            lap_time = lap_time if lap_time > 0 else (d.get("LapBestLapTime") or 0)
+            remain = d.get("SessionTimeRemain")
+            laps_left = (remain / lap_time + 1) if lap_time > 0 and remain is not None and remain < 86400 else None
+        if laps_left is not None:
+            out["Calc_LapsRemaining"] = round(laps_left, 1)
+            if fuel is not None:
+                out["Calc_FuelToFinish"] = round(max(0.0, laps_left * per_lap - fuel), 2)
+        return out
+
+
+# --------------------------------------------------------------------------------------
 # Config persistence
 # --------------------------------------------------------------------------------------
 
@@ -122,6 +187,7 @@ class Board:
         self.clients = set()
         self.log = deque(maxlen=250)
         self.run_lock = asyncio.Lock()
+        self.fuel = FuelTracker()
 
     @property
     def settings(self):
@@ -241,9 +307,11 @@ class Board:
         while True:
             hz = min(30, max(1, int(self.settings.get("telemetryHz") or 10)))
             await asyncio.sleep(1 / hz)
+            status = self.source.status()
+            fuel_data = self.source.get(FUEL_VARS) if status["connected"] else {}
+            self.fuel.update(fuel_data)  # keep tracking even with no devices connected
             if not self.clients:
                 continue
-            status = self.source.status()
             if status != last_status:
                 last_status = status
                 await self.broadcast({"t": "status", **status})
@@ -256,6 +324,7 @@ class Board:
             for c in self.clients:
                 names |= c.subs
             data = self.source.get(names)
+            data.update(self.fuel.values(fuel_data))
             if data:
                 await self.broadcast({"t": "tel", "d": data})
 
@@ -301,7 +370,8 @@ async def api_vars(request):
     board = request.app["board"]
     if not _pin_ok(board, request.headers.get("X-Pin", "")):
         raise web.HTTPUnauthorized()
-    return web.json_response(board.source.var_list())
+    calc = [{"name": n, "desc": d, "unit": "", "count": 1, "type": "calc"} for n, d in CALC_VARS.items()]
+    return web.json_response(board.source.var_list() + calc)
 
 
 async def ws_handler(request):
@@ -373,8 +443,13 @@ def main():
     ap.add_argument("--host", default="0.0.0.0")
     ap.add_argument("--port", type=int, default=8420)
     ap.add_argument("--demo", action="store_true", help="run with a fake session instead of iRacing")
+    ap.add_argument("--data", help="folder for the saved layout (default: ./data)")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
+    if args.data:
+        global DATA_DIR, CONFIG_PATH
+        DATA_DIR = Path(args.data).resolve()
+        CONFIG_PATH = DATA_DIR / "config.json"
     logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                         format="%(asctime)s %(levelname)-7s %(name)s: %(message)s", datefmt="%H:%M:%S")
 
