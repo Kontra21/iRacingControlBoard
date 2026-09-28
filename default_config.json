@@ -1,0 +1,125 @@
+{
+  "version": 1,
+  "pages": [
+    {
+      "id": "control",
+      "name": "Control",
+      "columns": { "narrow": 3, "wide": 6 },
+      "items": [
+        { "id": "tgt", "type": "target", "w": 6, "h": 1 },
+        { "id": "wave", "type": "button", "label": "Wave Around", "icon": "↻", "color": "#2563eb", "w": 1, "h": 1, "confirm": false,
+          "actions": [ { "type": "chat", "text": "!waveby #{car}" } ] },
+        { "id": "eol", "type": "button", "label": "End of Line", "icon": "⤓", "color": "#7c3aed", "w": 1, "h": 1, "confirm": false,
+          "actions": [ { "type": "chat", "text": "!eol #{car}" } ] },
+        { "id": "dt", "type": "button", "label": "Drive-Through", "icon": "⚑", "color": "#1f2937", "w": 1, "h": 1, "confirm": false,
+          "actions": [ { "type": "chat", "text": "!black #{car} D" } ] },
+        { "id": "sh", "type": "button", "label": "Stop & Hold", "icon": "⏱", "color": "#1f2937", "w": 1, "h": 1, "confirm": false,
+          "actions": [ { "type": "chat", "text": "!black #{car} {input:Seconds=10}" } ] },
+        { "id": "clr", "type": "button", "label": "Clear Penalty", "icon": "✓", "color": "#059669", "w": 1, "h": 1, "confirm": false,
+          "actions": [ { "type": "chat", "text": "!clear #{car}" } ] },
+        { "id": "dq", "type": "button", "label": "Disqualify", "sub": "hold", "icon": "✕", "color": "#b91c1c", "w": 1, "h": 1, "confirm": true, "hold": true,
+          "actions": [ { "type": "chat", "text": "!dq #{car}" } ] },
+        { "id": "yel", "type": "button", "label": "Caution", "icon": "⚠", "color": "#eab308", "textColor": "#111111", "w": 2, "h": 1, "confirm": false,
+          "actions": [ { "type": "chat", "text": "!yellow" } ] },
+        { "id": "pc", "type": "button", "label": "Close Pits", "icon": "⛔", "color": "#ea580c", "w": 1, "h": 1, "confirm": false,
+          "actions": [ { "type": "chat", "text": "!pitclose" } ] },
+        { "id": "po", "type": "button", "label": "Open Pits", "icon": "⇥", "color": "#16a34a", "w": 1, "h": 1, "confirm": false,
+          "actions": [ { "type": "chat", "text": "!pitopen" } ] },
+        { "id": "clra", "type": "button", "label": "Clear All", "sub": "penalties", "icon": "✓✓", "color": "#0d9488", "w": 1, "h": 1, "confirm": false,
+          "actions": [ { "type": "chat", "text": "!clearall" } ] },
+        { "id": "msg", "type": "button", "label": "Message", "icon": "✉", "color": "#475569", "w": 1, "h": 1, "confirm": false,
+          "actions": [ { "type": "chat", "text": "{input:Message}" } ] },
+        { "id": "cam", "type": "button", "label": "Watch Car", "icon": "◉", "color": "#0891b2", "w": 1, "h": 1, "confirm": false,
+          "actions": [ { "type": "camera", "mode": "car", "car": "{car}", "group": "", "camera": 0 } ] }
+      ]
+    },
+    {
+      "id": "drivers",
+      "name": "Drivers",
+      "columns": { "narrow": 3, "wide": 6 },
+      "items": [
+        { "id": "dl", "type": "drivers", "w": 6, "h": 9, "sort": "position" }
+      ]
+    },
+    {
+      "id": "session",
+      "name": "Session",
+      "columns": { "narrow": 2, "wide": 4 },
+      "items": [
+        { "id": "flag", "type": "flag", "w": 4, "h": 2 },
+        { "id": "t1", "type": "tile", "label": "Laps Left", "source": "SessionLapsRemainEx", "format": "laps", "w": 1, "h": 1 },
+        { "id": "t2", "type": "tile", "label": "Time Left", "source": "SessionTimeRemain", "format": "time", "w": 1, "h": 1 },
+        { "id": "t3", "type": "tile", "label": "Session", "source": "@sessionType", "format": "text", "w": 1, "h": 1 },
+        { "id": "t4", "type": "tile", "label": "State", "source": "SessionState", "format": "sessionState", "w": 1, "h": 1 },
+        { "id": "t5", "type": "tile", "label": "Pace Mode", "source": "PaceMode", "format": "paceMode", "w": 1, "h": 1 },
+        { "id": "t6", "type": "tile", "label": "On Pit Road", "source": "@carsOnPitRoad", "format": "int", "w": 1, "h": 1 },
+        { "id": "t7", "type": "tile", "label": "Air", "source": "AirTemp", "format": "float", "decimals": 1, "suffix": "°C", "w": 1, "h": 1 },
+        { "id": "t8", "type": "tile", "label": "Track", "source": "TrackTempCrew", "format": "float", "decimals": 1, "suffix": "°C", "w": 1, "h": 1 },
+        { "id": "t9", "type": "tile", "label": "Target Pos", "source": "CarIdxPosition[target]", "format": "position", "w": 1, "h": 1 },
+        { "id": "t10", "type": "tile", "label": "Target Last", "source": "CarIdxLastLapTime[target]", "format": "laptime", "w": 1, "h": 1 },
+        { "id": "t11", "type": "tile", "label": "Target Best", "source": "CarIdxBestLapTime[target]", "format": "laptime", "w": 1, "h": 1 },
+        { "id": "t12", "type": "tile", "label": "Target Inc", "source": "@targetIncidents", "format": "text", "suffix": "x", "w": 1, "h": 1 }
+      ]
+    },
+    {
+      "id": "broadcast",
+      "name": "Camera",
+      "columns": { "narrow": 3, "wide": 6 },
+      "items": [
+        { "id": "lc", "type": "label", "label": "Camera — focus target car", "w": 6, "h": 1 },
+        { "id": "c1", "type": "button", "label": "TV1", "icon": "📺", "color": "#0e7490", "w": 1, "h": 1,
+          "actions": [ { "type": "camera", "mode": "car", "car": "{car}", "group": "TV1", "camera": 0 } ] },
+        { "id": "c2", "type": "button", "label": "Cockpit", "icon": "🎥", "color": "#0e7490", "w": 1, "h": 1,
+          "actions": [ { "type": "camera", "mode": "car", "car": "{car}", "group": "Cockpit", "camera": 0 } ] },
+        { "id": "c3", "type": "button", "label": "Chase", "icon": "🎥", "color": "#0e7490", "w": 1, "h": 1,
+          "actions": [ { "type": "camera", "mode": "car", "car": "{car}", "group": "Chase", "camera": 0 } ] },
+        { "id": "c4", "type": "button", "label": "Blimp", "icon": "🎈", "color": "#0e7490", "w": 1, "h": 1,
+          "actions": [ { "type": "camera", "mode": "car", "car": "{car}", "group": "Blimp", "camera": 0 } ] },
+        { "id": "c5", "type": "button", "label": "Leader", "icon": "①", "color": "#155e75", "w": 1, "h": 1,
+          "actions": [ { "type": "camera", "mode": "car", "car": "leader", "group": "", "camera": 0 } ] },
+        { "id": "c6", "type": "button", "label": "Incident", "icon": "💥", "color": "#155e75", "w": 1, "h": 1,
+          "actions": [ { "type": "camera", "mode": "car", "car": "incident", "group": "", "camera": 0 } ] },
+        { "id": "lr", "type": "label", "label": "Replay", "w": 6, "h": 1 },
+        { "id": "r1", "type": "button", "label": "Prev Incident", "icon": "⏮", "color": "#334155", "w": 1, "h": 1,
+          "actions": [ { "type": "replay", "op": "search", "mode": "prevIncident" } ] },
+        { "id": "r2", "type": "button", "label": "Rewind", "icon": "⏪", "color": "#334155", "w": 1, "h": 1,
+          "actions": [ { "type": "replay", "op": "speed", "speed": -4, "slow": false } ] },
+        { "id": "r3", "type": "button", "label": "Pause", "icon": "⏸", "color": "#334155", "w": 1, "h": 1,
+          "actions": [ { "type": "replay", "op": "pause" } ] },
+        { "id": "r4", "type": "button", "label": "Play", "icon": "▶", "color": "#334155", "w": 1, "h": 1,
+          "actions": [ { "type": "replay", "op": "play" } ] },
+        { "id": "r5", "type": "button", "label": "Fast Fwd", "icon": "⏩", "color": "#334155", "w": 1, "h": 1,
+          "actions": [ { "type": "replay", "op": "speed", "speed": 4, "slow": false } ] },
+        { "id": "r6", "type": "button", "label": "Next Incident", "icon": "⏭", "color": "#334155", "w": 1, "h": 1,
+          "actions": [ { "type": "replay", "op": "search", "mode": "nextIncident" } ] },
+        { "id": "r7", "type": "button", "label": "Go Live", "icon": "●", "color": "#dc2626", "w": 6, "h": 1,
+          "actions": [ { "type": "replay", "op": "live" } ] }
+      ]
+    },
+    {
+      "id": "admin",
+      "name": "Admin",
+      "columns": { "narrow": 3, "wide": 6 },
+      "items": [
+        { "id": "a1", "type": "button", "label": "Pace Laps", "icon": "#", "color": "#475569", "w": 1, "h": 1, "confirm": false,
+          "actions": [ { "type": "chat", "text": "!pacelaps {input:Laps=2}" } ] },
+        { "id": "a2", "type": "button", "label": "Advance Session", "icon": "⏭", "color": "#9333ea", "w": 1, "h": 1, "confirm": true, "hold": true,
+          "actions": [ { "type": "chat", "text": "!advance" } ] },
+        { "id": "a3", "type": "button", "label": "Mute Driver", "icon": "🔇", "color": "#475569", "w": 1, "h": 1, "confirm": false,
+          "actions": [ { "type": "chat", "text": "!nchat #{car}" } ] },
+        { "id": "a4", "type": "button", "label": "Unmute Driver", "icon": "🔈", "color": "#475569", "w": 1, "h": 1, "confirm": false,
+          "actions": [ { "type": "chat", "text": "!chat #{car}" } ] },
+        { "id": "a5", "type": "button", "label": "Mute All", "icon": "🔇", "color": "#334155", "w": 1, "h": 1, "confirm": false,
+          "actions": [ { "type": "chat", "text": "!nchat" } ] },
+        { "id": "a6", "type": "button", "label": "Unmute All", "icon": "🔈", "color": "#334155", "w": 1, "h": 1, "confirm": false,
+          "actions": [ { "type": "chat", "text": "!chat" } ] },
+        { "id": "a7", "type": "button", "label": "Remove Driver", "sub": "hold", "icon": "⏏", "color": "#7f1d1d", "w": 1, "h": 1, "confirm": true, "hold": true,
+          "actions": [ { "type": "chat", "text": "!remove #{car}" } ] },
+        { "id": "a8", "type": "button", "label": "Black Flag", "sub": "custom", "icon": "⚑", "color": "#1f2937", "w": 1, "h": 1, "confirm": false,
+          "actions": [ { "type": "chat", "text": "!black #{car} {input:Penalty (seconds, L# laps, or D)=D}" } ] },
+        { "id": "log", "type": "log", "w": 6, "h": 5 }
+      ]
+    }
+  ],
+  "settings": {}
+}

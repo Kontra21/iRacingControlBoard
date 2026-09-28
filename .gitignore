@@ -1,0 +1,6 @@
+# Runtime state: saved layout (may contain the board PIN) and backups
+data/
+
+__pycache__/
+*.pyc
+.venv/

@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Race Control">
+  <meta name="theme-color" content="#0b0d10">
+  <link rel="manifest" href="/static/manifest.json">
+  <link rel="icon" href="/static/icon.svg" type="image/svg+xml">
+  <title>Race Control</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header id="topbar">
+    <div id="conn" class="conn" title="Connection"><span class="dot"></span><span id="connText">Connecting…</span></div>
+    <div id="flagChip" class="flag-chip flag-none">—</div>
+    <button id="targetChip" class="target-chip" type="button">Select car</button>
+    <div class="grow"></div>
+    <button id="editBtn" class="icon-btn" type="button" title="Edit layout">✎</button>
+    <button id="menuBtn" class="icon-btn" type="button" title="Menu">☰</button>
+  </header>
+  <div id="editBar" class="edit-bar" hidden>
+    <span>Editing layout — drag <b>⠿</b> to move, tap an item to change it</span>
+    <button id="editDone" type="button">Done</button>
+  </div>
+  <main id="board"></main>
+  <nav id="tabs"></nav>
+  <div id="sheets"></div>
+  <div id="toasts"></div>
+  <datalist id="varList"></datalist>
+  <datalist id="camList"></datalist>
+  <datalist id="chatList"></datalist>
+  <script src="/static/app.js"></script>
+</body>
+</html>
